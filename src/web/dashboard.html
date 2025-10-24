@@ -219,6 +219,10 @@
                 <option value="zerodha">🇮🇳 Zerodha</option>
                 <option value="trading212">🌍 Trading 212</option>
             </select>
+            <select id="currencySelect" class="select">
+                <option value="INR">₹ INR (Indian Rupee)</option>
+                <option value="EUR">€ EUR (Euro)</option>
+            </select>
             <button id="refreshBtn" class="btn">🔄 Refresh Data</button>
             <button id="analyzeBtn" class="btn btn-secondary">🤖 Analyze Portfolio</button>
         </div>
@@ -277,15 +281,21 @@
             constructor() {
                 this.apiBase = 'http://localhost:8000';
                 this.currentBroker = 'combined';
+                this.currentCurrency = 'INR';
+                this.exchangeRate = null;
                 this.initializeEventListeners();
                 this.loadInitialData();
             }
-            
+
             initializeEventListeners() {
                 document.getElementById('refreshBtn').addEventListener('click', () => this.refreshData());
                 document.getElementById('analyzeBtn').addEventListener('click', () => this.analyzePortfolio());
                 document.getElementById('brokerSelect').addEventListener('change', (e) => {
                     this.currentBroker = e.target.value;
+                    this.refreshData();
+                });
+                document.getElementById('currencySelect').addEventListener('change', (e) => {
+                    this.currentCurrency = e.target.value;
                     this.refreshData();
                 });
             }
@@ -329,7 +339,19 @@
             }
             
             async fetchPortfolio() {
-                const response = await axios.get(`${this.apiBase}/portfolio/${this.currentBroker}`);
+                const url = `${this.apiBase}/portfolio/${this.currentBroker}?currency=${this.currentCurrency}`;
+                const response = await axios.get(url);
+
+                // Fetch exchange rate for display
+                if (this.currentCurrency !== 'INR') {
+                    try {
+                        const rateResponse = await axios.get(`${this.apiBase}/exchange-rate/EUR/INR`);
+                        this.exchangeRate = rateResponse.data.rate;
+                    } catch (e) {
+                        console.error('Failed to fetch exchange rate:', e);
+                    }
+                }
+
                 return response.data;
             }
             
@@ -343,15 +365,16 @@
             }
             
             updateMetrics(portfolioData) {
+                const currencySymbol = this.currentCurrency === 'INR' ? '₹' : '€';
                 const metricsGrid = document.getElementById('metricsGrid');
                 metricsGrid.innerHTML = `
                     <div class="metric-card">
-                        <div class="metric-value">₹${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
-                        <div class="metric-label">💼 Total Value</div>
+                        <div class="metric-value">${currencySymbol}${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
+                        <div class="metric-label">💼 Total Value (${this.currentCurrency})</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-value ${portfolioData.total_pnl >= 0 ? 'positive' : 'negative'}">
-                            ${portfolioData.total_pnl >= 0 ? '📈 +' : '📉 '}₹${Math.abs(portfolioData.total_pnl).toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                            ${portfolioData.total_pnl >= 0 ? '📈 +' : '📉 '}${currencySymbol}${Math.abs(portfolioData.total_pnl).toLocaleString('en-IN', {maximumFractionDigits: 2})}
                         </div>
                         <div class="metric-label">Total P&L</div>
                     </div>
@@ -389,13 +412,14 @@
             }
             
             createPortfolioValueChart(portfolioData) {
+                const currencySymbol = this.currentCurrency === 'INR' ? '₹' : '€';
                 const data = [{
                     x: ['Current'],
                     y: [portfolioData.total_value],
                     type: 'bar',
                     name: 'Portfolio Value',
                     marker: { color: '#667eea' },
-                    text: [`₹${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}`],
+                    text: [`${currencySymbol}${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}`],
                     textposition: 'outside'
                 }];
 
@@ -403,7 +427,7 @@
                     title: '',
                     xaxis: { title: '' },
                     yaxis: {
-                        title: 'Value (₹)',
+                        title: `Value (${currencySymbol})`,
                         tickformat: ',.0f'
                     },
                     showlegend: false
@@ -434,6 +458,7 @@
             }
             
             createPnLChart(portfolioData) {
+                const currencySymbol = this.currentCurrency === 'INR' ? '₹' : '€';
                 const data = [{
                     x: ['Total P&L'],
                     y: [portfolioData.total_pnl],
@@ -441,7 +466,7 @@
                     marker: {
                         color: portfolioData.total_pnl >= 0 ? '#27ae60' : '#e74c3c'
                     },
-                    text: [`₹${portfolioData.total_pnl.toLocaleString('en-IN', {maximumFractionDigits: 2})}`],
+                    text: [`${currencySymbol}${portfolioData.total_pnl.toLocaleString('en-IN', {maximumFractionDigits: 2})}`],
                     textposition: 'outside'
                 }];
 
@@ -449,7 +474,7 @@
                     title: '',
                     xaxis: { title: '' },
                     yaxis: {
-                        title: 'P&L (₹)',
+                        title: `P&L (${currencySymbol})`,
                         tickformat: ',.0f'
                     },
                     showlegend: false
@@ -494,6 +519,7 @@
             }
             
             createTopHoldingsChart(portfolioData) {
+                const currencySymbol = this.currentCurrency === 'INR' ? '₹' : '€';
                 const sortedHoldings = portfolioData.holdings
                     .sort((a, b) => b.current_value - a.current_value)
                     .slice(0, 10);
@@ -506,7 +532,7 @@
                         color: '#764ba2',
                         opacity: 0.8
                     },
-                    text: sortedHoldings.map(h => `₹${h.current_value.toLocaleString('en-IN', {maximumFractionDigits: 0})}`),
+                    text: sortedHoldings.map(h => `${currencySymbol}${h.current_value.toLocaleString('en-IN', {maximumFractionDigits: 0})}`),
                     textposition: 'outside'
                 }];
 
@@ -514,7 +540,7 @@
                     title: '',
                     xaxis: { title: 'Stock Symbol' },
                     yaxis: {
-                        title: 'Value (₹)',
+                        title: `Value (${currencySymbol})`,
                         tickformat: ',.0f'
                     },
                     showlegend: false
