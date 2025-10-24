@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial AI Worker - Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .card h3 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .metric-card {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .metric-label {
+            color: #7f8c8d;
+            margin-top: 0.5rem;
+        }
+        
+        .positive {
+            color: #27ae60;
+        }
+        
+        .negative {
+            color: #e74c3c;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s ease;
+        }
+        
+        .btn:hover {
+            background: #2980b9;
+        }
+        
+        .btn-secondary {
+            background: #95a5a6;
+        }
+        
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+        
+        .select {
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #7f8c8d;
+        }
+        
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 1rem;
+            border-radius: 5px;
+            margin: 1rem 0;
+        }
+        
+        .success {
+            background: #27ae60;
+            color: white;
+            padding: 1rem;
+            border-radius: 5px;
+            margin: 1rem 0;
+        }
+        
+        .chart-container {
+            height: 400px;
+            margin: 1rem 0;
+        }
+        
+        .recommendations {
+            background: #ecf0f1;
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .recommendations h4 {
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+        }
+        
+        .recommendations ul {
+            list-style-type: none;
+        }
+        
+        .recommendations li {
+            padding: 0.25rem 0;
+            color: #34495e;
+        }
+        
+        .recommendations li:before {
+            content: "• ";
+            color: #3498db;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>💰 Financial AI Worker</h1>
+        <p>📊 Portfolio Analysis & Trading Dashboard</p>
+    </div>
+    
+    <div class="container">
+        <div class="controls">
+            <select id="brokerSelect" class="select">
+                <option value="combined">🌐 Combined Portfolio</option>
+                <option value="zerodha">🇮🇳 Zerodha</option>
+                <option value="trading212">🌍 Trading 212</option>
+            </select>
+            <button id="refreshBtn" class="btn">🔄 Refresh Data</button>
+            <button id="analyzeBtn" class="btn btn-secondary">🤖 Analyze Portfolio</button>
+        </div>
+        
+        <div id="loadingIndicator" class="loading" style="display: none;">
+            ⏳ Loading portfolio data...
+        </div>
+        
+        <div id="errorMessage" class="error" style="display: none;"></div>
+        <div id="successMessage" class="success" style="display: none;"></div>
+        
+        <div class="metrics-grid" id="metricsGrid">
+            <!-- Metrics will be populated here -->
+        </div>
+        
+        <div class="dashboard-grid">
+            <div class="card">
+                <h3>💰 Portfolio Value</h3>
+                <div id="portfolioValueChart" class="chart-container"></div>
+            </div>
+
+            <div class="card">
+                <h3>🥧 Asset Allocation</h3>
+                <div id="assetAllocationChart" class="chart-container"></div>
+            </div>
+
+            <div class="card">
+                <h3>📊 P&L Analysis</h3>
+                <div id="pnlChart" class="chart-container"></div>
+            </div>
+
+            <div class="card">
+                <h3>⚖️ Risk vs Return</h3>
+                <div id="riskReturnChart" class="chart-container"></div>
+            </div>
+
+            <div class="card">
+                <h3>🏆 Top Holdings</h3>
+                <div id="topHoldingsChart" class="chart-container"></div>
+            </div>
+
+            <div class="card">
+                <h3>📈 Portfolio Metrics</h3>
+                <div id="metricsDashboard" class="chart-container"></div>
+            </div>
+        </div>
+
+        <div id="recommendations" class="recommendations" style="display: none;">
+            <h4>🤖 AI Recommendations</h4>
+            <ul id="recommendationsList"></ul>
+        </div>
+    </div>
+    
+    <script>
+        class FinancialDashboard {
+            constructor() {
+                this.apiBase = 'http://localhost:8000';
+                this.currentBroker = 'combined';
+                this.initializeEventListeners();
+                this.loadInitialData();
+            }
+            
+            initializeEventListeners() {
+                document.getElementById('refreshBtn').addEventListener('click', () => this.refreshData());
+                document.getElementById('analyzeBtn').addEventListener('click', () => this.analyzePortfolio());
+                document.getElementById('brokerSelect').addEventListener('change', (e) => {
+                    this.currentBroker = e.target.value;
+                    this.refreshData();
+                });
+            }
+            
+            async loadInitialData() {
+                this.showLoading(true);
+                try {
+                    await this.refreshData();
+                } catch (error) {
+                    this.showError('Failed to load initial data: ' + error.message);
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+            
+            async refreshData() {
+                this.showLoading(true);
+                try {
+                    const portfolioData = await this.fetchPortfolio();
+                    this.updateMetrics(portfolioData);
+                    await this.updateCharts(portfolioData);
+                    this.showSuccess('Portfolio data refreshed successfully');
+                } catch (error) {
+                    this.showError('Failed to refresh data: ' + error.message);
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+            
+            async analyzePortfolio() {
+                this.showLoading(true);
+                try {
+                    const analysisData = await this.fetchAnalysis();
+                    this.updateRecommendations(analysisData.recommendations);
+                    this.showSuccess('Portfolio analysis completed');
+                } catch (error) {
+                    this.showError('Failed to analyze portfolio: ' + error.message);
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+            
+            async fetchPortfolio() {
+                const response = await axios.get(`${this.apiBase}/portfolio/${this.currentBroker}`);
+                return response.data;
+            }
+            
+            async fetchAnalysis() {
+                const response = await axios.post(`${this.apiBase}/analyze`, {
+                    broker: this.currentBroker,
+                    include_recommendations: true,
+                    include_risk_analysis: true
+                });
+                return response.data;
+            }
+            
+            updateMetrics(portfolioData) {
+                const metricsGrid = document.getElementById('metricsGrid');
+                metricsGrid.innerHTML = `
+                    <div class="metric-card">
+                        <div class="metric-value">₹${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
+                        <div class="metric-label">💼 Total Value</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value ${portfolioData.total_pnl >= 0 ? 'positive' : 'negative'}">
+                            ${portfolioData.total_pnl >= 0 ? '📈 +' : '📉 '}₹${Math.abs(portfolioData.total_pnl).toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                        </div>
+                        <div class="metric-label">Total P&L</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value ${portfolioData.total_pnl_percentage >= 0 ? 'positive' : 'negative'}">
+                            ${portfolioData.total_pnl_percentage >= 0 ? '✅ +' : '❌ '}${Math.abs(portfolioData.total_pnl_percentage).toFixed(2)}%
+                        </div>
+                        <div class="metric-label">Return %</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">📊 ${portfolioData.holdings.length}</div>
+                        <div class="metric-label">Holdings</div>
+                    </div>
+                `;
+            }
+            
+            async updateCharts(portfolioData) {
+                // Portfolio Value Chart
+                this.createPortfolioValueChart(portfolioData);
+                
+                // Asset Allocation Chart
+                this.createAssetAllocationChart(portfolioData);
+                
+                // P&L Chart
+                this.createPnLChart(portfolioData);
+                
+                // Risk vs Return Chart
+                this.createRiskReturnChart(portfolioData);
+                
+                // Top Holdings Chart
+                this.createTopHoldingsChart(portfolioData);
+                
+                // Metrics Dashboard
+                this.createMetricsDashboard(portfolioData);
+            }
+            
+            createPortfolioValueChart(portfolioData) {
+                const data = [{
+                    x: ['Current'],
+                    y: [portfolioData.total_value],
+                    type: 'bar',
+                    name: 'Portfolio Value',
+                    marker: { color: '#667eea' },
+                    text: [`₹${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}`],
+                    textposition: 'outside'
+                }];
+
+                const layout = {
+                    title: '',
+                    xaxis: { title: '' },
+                    yaxis: {
+                        title: 'Value (₹)',
+                        tickformat: ',.0f'
+                    },
+                    showlegend: false
+                };
+
+                Plotly.newPlot('portfolioValueChart', data, layout);
+            }
+            
+            createAssetAllocationChart(portfolioData) {
+                const assetTypes = {};
+                portfolioData.holdings.forEach(holding => {
+                    const type = holding.asset_type || 'equity';
+                    assetTypes[type] = (assetTypes[type] || 0) + holding.current_value;
+                });
+                
+                const data = [{
+                    labels: Object.keys(assetTypes),
+                    values: Object.values(assetTypes),
+                    type: 'pie',
+                    hole: 0.3
+                }];
+                
+                const layout = {
+                    title: 'Asset Allocation'
+                };
+                
+                Plotly.newPlot('assetAllocationChart', data, layout);
+            }
+            
+            createPnLChart(portfolioData) {
+                const data = [{
+                    x: ['Total P&L'],
+                    y: [portfolioData.total_pnl],
+                    type: 'bar',
+                    marker: {
+                        color: portfolioData.total_pnl >= 0 ? '#27ae60' : '#e74c3c'
+                    },
+                    text: [`₹${portfolioData.total_pnl.toLocaleString('en-IN', {maximumFractionDigits: 2})}`],
+                    textposition: 'outside'
+                }];
+
+                const layout = {
+                    title: '',
+                    xaxis: { title: '' },
+                    yaxis: {
+                        title: 'P&L (₹)',
+                        tickformat: ',.0f'
+                    },
+                    showlegend: false
+                };
+
+                Plotly.newPlot('pnlChart', data, layout);
+            }
+            
+            createRiskReturnChart(portfolioData) {
+                const x = [];
+                const y = [];
+                const text = [];
+                const size = [];
+                
+                portfolioData.holdings.forEach(holding => {
+                    x.push(Math.random() * 0.3); // Simulated risk
+                    y.push(Math.random() * 0.2); // Simulated return
+                    text.push(holding.symbol);
+                    size.push(holding.current_value / portfolioData.total_value * 50);
+                });
+                
+                const data = [{
+                    x: x,
+                    y: y,
+                    mode: 'markers',
+                    text: text,
+                    marker: {
+                        size: size,
+                        color: y,
+                        colorscale: 'Viridis',
+                        showscale: true
+                    }
+                }];
+                
+                const layout = {
+                    title: 'Risk vs Return',
+                    xaxis: { title: 'Risk (Volatility)' },
+                    yaxis: { title: 'Return Rate' }
+                };
+                
+                Plotly.newPlot('riskReturnChart', data, layout);
+            }
+            
+            createTopHoldingsChart(portfolioData) {
+                const sortedHoldings = portfolioData.holdings
+                    .sort((a, b) => b.current_value - a.current_value)
+                    .slice(0, 10);
+
+                const data = [{
+                    x: sortedHoldings.map(h => h.symbol),
+                    y: sortedHoldings.map(h => h.current_value),
+                    type: 'bar',
+                    marker: {
+                        color: '#764ba2',
+                        opacity: 0.8
+                    },
+                    text: sortedHoldings.map(h => `₹${h.current_value.toLocaleString('en-IN', {maximumFractionDigits: 0})}`),
+                    textposition: 'outside'
+                }];
+
+                const layout = {
+                    title: '',
+                    xaxis: { title: 'Stock Symbol' },
+                    yaxis: {
+                        title: 'Value (₹)',
+                        tickformat: ',.0f'
+                    },
+                    showlegend: false
+                };
+
+                Plotly.newPlot('topHoldingsChart', data, layout);
+            }
+            
+            createMetricsDashboard(portfolioData) {
+                const data = [{
+                    type: 'indicator',
+                    mode: 'number+delta',
+                    value: portfolioData.total_pnl_percentage,
+                    title: { text: 'Total Return (%)' },
+                    delta: { reference: 0 }
+                }];
+                
+                const layout = {
+                    title: 'Portfolio Metrics'
+                };
+                
+                Plotly.newPlot('metricsDashboard', data, layout);
+            }
+            
+            updateRecommendations(recommendations) {
+                const recommendationsDiv = document.getElementById('recommendations');
+                const recommendationsList = document.getElementById('recommendationsList');
+                
+                if (recommendations && recommendations.length > 0) {
+                    recommendationsList.innerHTML = recommendations
+                        .map(rec => `<li>${rec}</li>`)
+                        .join('');
+                    recommendationsDiv.style.display = 'block';
+                } else {
+                    recommendationsDiv.style.display = 'none';
+                }
+            }
+            
+            showLoading(show) {
+                document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+            }
+            
+            showError(message) {
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.textContent = '❌ ' + message;
+                errorDiv.style.display = 'block';
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                }, 5000);
+            }
+
+            showSuccess(message) {
+                const successDiv = document.getElementById('successMessage');
+                successDiv.textContent = '✅ ' + message;
+                successDiv.style.display = 'block';
+                setTimeout(() => {
+                    successDiv.style.display = 'none';
+                }, 3000);
+            }
+        }
+        
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new FinancialDashboard();
+        });
+    </script>
+</body>
+</html>
+
