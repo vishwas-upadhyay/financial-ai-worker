@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Broker Settings - Financial AI Worker</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .nav {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .header .nav a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            background: rgba(255,255,255,0.2);
+            border-radius: 5px;
+            transition: background 0.2s;
+        }
+
+        .header .nav a:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+
+        .broker-card {
+            background: white;
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .broker-card h2 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 0.25rem;
+            color: #7f8c8d;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+
+        .info-box h4 {
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+        }
+
+        .info-box ol {
+            margin-left: 1.5rem;
+        }
+
+        .info-box li {
+            margin-bottom: 0.5rem;
+            color: #34495e;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>⚙️ Broker Settings</h1>
+        <div class="nav">
+            <a href="/">📊 Dashboard</a>
+            <a href="/settings">⚙️ Settings</a>
+            <a href="/docs">📚 API Docs</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="alertContainer"></div>
+
+        <!-- Zerodha Section -->
+        <div class="broker-card">
+            <h2>
+                🇮🇳 Zerodha
+                <span id="zerodhaStatus" class="status disconnected">Disconnected</span>
+            </h2>
+
+            <div id="zerodhaConnected" style="display: none;">
+                <p>✅ Connected successfully!</p>
+                <p><strong>API Key:</strong> <span id="zerodhaApiKey"></span></p>
+                <p><strong>Expires:</strong> <span id="zerodhaExpires"></span></p>
+
+                <div class="actions">
+                    <button id="zerodhaLogoutBtn" class="btn btn-danger">Disconnect</button>
+                </div>
+            </div>
+
+            <div id="zerodhaDisconnected">
+                <div class="info-box">
+                    <h4>How to Connect Zerodha:</h4>
+                    <ol>
+                        <li>Go to <a href="https://developers.kite.trade/" target="_blank">Zerodha Kite Connect</a></li>
+                        <li>Create an app and get your API Key and Secret</li>
+                        <li>Configure redirect URL as: <code>http://localhost:8000/zerodha/callback</code></li>
+                        <li>Click "Login with Zerodha" below</li>
+                        <li>After login, you'll get a request token</li>
+                        <li>Paste your credentials and request token here</li>
+                    </ol>
+                </div>
+
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="zerodhaApiKeyInput" placeholder="Enter Zerodha API Key">
+                </div>
+
+                <div class="form-group">
+                    <label>API Secret</label>
+                    <input type="password" id="zerodhaApiSecretInput" placeholder="Enter Zerodha API Secret">
+                </div>
+
+                <div class="form-group">
+                    <label>Request Token</label>
+                    <input type="text" id="zerodhaRequestTokenInput" placeholder="Get this after login">
+                    <small>After clicking "Login with Zerodha", you'll be redirected and receive a request_token parameter</small>
+                </div>
+
+                <div class="actions">
+                    <button id="zerodhaLoginUrlBtn" class="btn btn-success">Login with Zerodha</button>
+                    <button id="zerodhaConnectBtn" class="btn">Connect</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trading212 Section -->
+        <div class="broker-card">
+            <h2>
+                🌍 Trading 212
+                <span id="trading212Status" class="status disconnected">Disconnected</span>
+            </h2>
+
+            <div id="trading212Connected" style="display: none;">
+                <p>✅ Connected successfully!</p>
+                <p><strong>API Key:</strong> <span id="trading212ApiKey"></span></p>
+
+                <div class="actions">
+                    <button id="trading212LogoutBtn" class="btn btn-danger">Disconnect</button>
+                </div>
+            </div>
+
+            <div id="trading212Disconnected">
+                <div class="info-box">
+                    <h4>How to Connect Trading212:</h4>
+                    <ol>
+                        <li>Login to <a href="https://www.trading212.com/" target="_blank">Trading212</a></li>
+                        <li>Go to Settings → API (Beta)</li>
+                        <li>Generate an API Key</li>
+                        <li>Copy the API Key and paste it below</li>
+                        <li>Optionally, add your public IP address for security</li>
+                    </ol>
+                </div>
+
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="trading212ApiKeyInput" placeholder="Enter Trading212 API Key">
+                </div>
+
+                <div class="actions">
+                    <button id="trading212ConnectBtn" class="btn">Connect</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class BrokerSettings {
+            constructor() {
+                this.apiBase = 'http://localhost:8000';
+                this.initializeEventListeners();
+                this.loadStatus();
+            }
+
+            initializeEventListeners() {
+                // Zerodha buttons
+                document.getElementById('zerodhaLoginUrlBtn').addEventListener('click', () => this.openZerodhaLogin());
+                document.getElementById('zerodhaConnectBtn').addEventListener('click', () => this.connectZerodha());
+                document.getElementById('zerodhaLogoutBtn').addEventListener('click', () => this.disconnectZerodha());
+
+                // Trading212 buttons
+                document.getElementById('trading212ConnectBtn').addEventListener('click', () => this.connectTrading212());
+                document.getElementById('trading212LogoutBtn').addEventListener('click', () => this.disconnectTrading212());
+            }
+
+            async loadStatus() {
+                try {
+                    const response = await axios.get(`${this.apiBase}/auth/status`);
+                    const status = response.data;
+
+                    this.updateZerodhaStatus(status.zerodha);
+                    this.updateTrading212Status(status.trading212);
+                } catch (error) {
+                    this.showAlert('error', 'Failed to load broker status: ' + error.message);
+                }
+            }
+
+            updateZerodhaStatus(status) {
+                const statusEl = document.getElementById('zerodhaStatus');
+                const connectedDiv = document.getElementById('zerodhaConnected');
+                const disconnectedDiv = document.getElementById('zerodhaDisconnected');
+
+                if (status.connected) {
+                    statusEl.textContent = 'Connected';
+                    statusEl.className = 'status connected';
+                    connectedDiv.style.display = 'block';
+                    disconnectedDiv.style.display = 'none';
+
+                    document.getElementById('zerodhaApiKey').textContent = status.api_key;
+                    document.getElementById('zerodhaExpires').textContent =
+                        new Date(status.expires_at).toLocaleString() +
+                        ` (${Math.round(status.expires_in_hours)} hours remaining)`;
+                } else {
+                    statusEl.textContent = 'Disconnected';
+                    statusEl.className = 'status disconnected';
+                    connectedDiv.style.display = 'none';
+                    disconnectedDiv.style.display = 'block';
+                }
+            }
+
+            updateTrading212Status(status) {
+                const statusEl = document.getElementById('trading212Status');
+                const connectedDiv = document.getElementById('trading212Connected');
+                const disconnectedDiv = document.getElementById('trading212Disconnected');
+
+                if (status.connected) {
+                    statusEl.textContent = 'Connected';
+                    statusEl.className = 'status connected';
+                    connectedDiv.style.display = 'block';
+                    disconnectedDiv.style.display = 'none';
+
+                    document.getElementById('trading212ApiKey').textContent = status.api_key;
+                } else {
+                    statusEl.textContent = 'Disconnected';
+                    statusEl.className = 'status disconnected';
+                    connectedDiv.style.display = 'none';
+                    disconnectedDiv.style.display = 'block';
+                }
+            }
+
+            async openZerodhaLogin() {
+                try {
+                    const response = await axios.get(`${this.apiBase}/auth/zerodha/login-url`);
+                    const loginUrl = response.data.login_url;
+
+                    this.showAlert('info', 'Opening Zerodha login. After login, copy the request_token from the URL and paste it in the Request Token field below.');
+
+                    window.open(loginUrl, '_blank');
+                } catch (error) {
+                    this.showAlert('error', 'Failed to get login URL: ' + error.message);
+                }
+            }
+
+            async connectZerodha() {
+                const apiKey = document.getElementById('zerodhaApiKeyInput').value;
+                const apiSecret = document.getElementById('zerodhaApiSecretInput').value;
+                const requestToken = document.getElementById('zerodhaRequestTokenInput').value;
+
+                if (!apiKey || !apiSecret || !requestToken) {
+                    this.showAlert('error', 'Please fill in all fields');
+                    return;
+                }
+
+                try {
+                    const response = await axios.post(`${this.apiBase}/auth/zerodha/login`, {
+                        api_key: apiKey,
+                        api_secret: apiSecret,
+                        request_token: requestToken
+                    });
+
+                    this.showAlert('success', response.data.message);
+
+                    // Clear inputs
+                    document.getElementById('zerodhaApiKeyInput').value = '';
+                    document.getElementById('zerodhaApiSecretInput').value = '';
+                    document.getElementById('zerodhaRequestTokenInput').value = '';
+
+                    // Reload status
+                    setTimeout(() => this.loadStatus(), 1000);
+                } catch (error) {
+                    const message = error.response?.data?.detail || error.message;
+                    this.showAlert('error', 'Connection failed: ' + message);
+                }
+            }
+
+            async disconnectZerodha() {
+                if (!confirm('Are you sure you want to disconnect Zerodha?')) {
+                    return;
+                }
+
+                try {
+                    await axios.delete(`${this.apiBase}/auth/zerodha/logout`);
+                    this.showAlert('success', 'Disconnected from Zerodha');
+                    this.loadStatus();
+                } catch (error) {
+                    this.showAlert('error', 'Failed to disconnect: ' + error.message);
+                }
+            }
+
+            async connectTrading212() {
+                const apiKey = document.getElementById('trading212ApiKeyInput').value;
+
+                if (!apiKey) {
+                    this.showAlert('error', 'Please enter API Key');
+                    return;
+                }
+
+                try {
+                    const response = await axios.post(`${this.apiBase}/auth/trading212/login`, {
+                        api_key: apiKey
+                    });
+
+                    this.showAlert('success', response.data.message);
+
+                    // Clear input
+                    document.getElementById('trading212ApiKeyInput').value = '';
+
+                    // Reload status
+                    setTimeout(() => this.loadStatus(), 1000);
+                } catch (error) {
+                    const message = error.response?.data?.detail || error.message;
+                    this.showAlert('error', 'Connection failed: ' + message);
+                }
+            }
+
+            async disconnectTrading212() {
+                if (!confirm('Are you sure you want to disconnect Trading212?')) {
+                    return;
+                }
+
+                try {
+                    await axios.delete(`${this.apiBase}/auth/trading212/logout`);
+                    this.showAlert('success', 'Disconnected from Trading212');
+                    this.loadStatus();
+                } catch (error) {
+                    this.showAlert('error', 'Failed to disconnect: ' + error.message);
+                }
+            }
+
+            showAlert(type, message) {
+                const alertContainer = document.getElementById('alertContainer');
+                const alertClass = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
+
+                const alert = document.createElement('div');
+                alert.className = `alert ${alertClass}`;
+                alert.textContent = message;
+
+                alertContainer.innerHTML = '';
+                alertContainer.appendChild(alert);
+
+                setTimeout(() => {
+                    alert.remove();
+                }, 5000);
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new BrokerSettings();
+        });
+    </script>
+</body>
+</html>

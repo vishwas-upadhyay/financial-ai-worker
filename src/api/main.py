@@ -17,6 +17,7 @@ from src.brokers.zerodha_client import ZerodhaClient
 from src.brokers.trading212_client import Trading212Client
 from src.analytics.portfolio_analyzer import PortfolioAnalyzer, PortfolioMetrics
 from src.services.currency_converter import currency_converter
+from src.services.token_manager import token_manager
 from src.models.portfolio_models import (
     PortfolioResponse,
     OrderRequest,
@@ -24,6 +25,7 @@ from src.models.portfolio_models import (
     AnalysisRequest,
     AnalysisResponse
 )
+from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(
@@ -50,6 +52,18 @@ app.add_middleware(
 
 # Initialize analyzer
 analyzer = PortfolioAnalyzer()
+
+
+# Pydantic models for authentication
+class ZerodhaLoginRequest(BaseModel):
+    api_key: str
+    api_secret: str
+    request_token: str
+
+
+class Trading212LoginRequest(BaseModel):
+    api_key: str
+    api_secret: Optional[str] = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -126,6 +140,18 @@ async def dashboard():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/settings", response_class=HTMLResponse)
+async def settings():
+    """Serve the broker settings page"""
+    settings_path = Path(__file__).parent.parent / "web" / "settings.html"
+
+    if not settings_path.exists():
+        raise HTTPException(status_code=404, detail="Settings page not found")
+
+    with open(settings_path, 'r') as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -134,6 +160,117 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "version": settings.app_version
     }
+
+
+@app.get("/auth/status")
+async def get_auth_status():
+    """Get authentication status for all brokers"""
+    return token_manager.get_all_tokens_status()
+
+
+@app.get("/auth/zerodha/login-url")
+async def get_zerodha_login_url():
+    """Get Zerodha login URL for OAuth"""
+    api_key = settings.zerodha_api_key
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Zerodha API key not configured in settings")
+
+    redirect_url = settings.zerodha_redirect_url
+    login_url = f"https://kite.zerodha.com/connect/login?api_key={api_key}&v=3"
+
+    return {
+        "login_url": login_url,
+        "redirect_url": redirect_url,
+        "instructions": "After login, you'll be redirected with a request_token. Use that token to complete authentication."
+    }
+
+
+@app.post("/auth/zerodha/login")
+async def zerodha_login(request: ZerodhaLoginRequest):
+    """Complete Zerodha authentication with request token"""
+    try:
+        import hashlib
+
+        # Generate checksum
+        checksum_string = f"{request.api_key}{request.request_token}{request.api_secret}"
+        checksum = hashlib.sha256(checksum_string.encode()).hexdigest()
+
+        # Generate access token
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.kite.trade/session/token",
+                data={
+                    "api_key": request.api_key,
+                    "request_token": request.request_token,
+                    "checksum": checksum
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            access_token = data['data']['access_token']
+
+            # Save tokens
+            token_manager.save_zerodha_token(
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                access_token=access_token,
+                request_token=request.request_token
+            )
+
+            return {
+                "success": True,
+                "message": "Zerodha authentication successful",
+                "expires_at": token_manager.get_zerodha_token()['expires_at']
+            }
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Zerodha authentication failed: {e.response.text}")
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {e.response.text}")
+    except Exception as e:
+        logger.error(f"Error during Zerodha authentication: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auth/trading212/login")
+async def trading212_login(request: Trading212LoginRequest):
+    """Save Trading212 API credentials"""
+    try:
+        # Save tokens
+        token_manager.save_trading212_token(
+            api_key=request.api_key,
+            api_secret=request.api_secret
+        )
+
+        return {
+            "success": True,
+            "message": "Trading212 credentials saved successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Error saving Trading212 credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/auth/zerodha/logout")
+async def zerodha_logout():
+    """Logout from Zerodha (delete tokens)"""
+    try:
+        token_manager.delete_zerodha_token()
+        return {"success": True, "message": "Zerodha logout successful"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/auth/trading212/logout")
+async def trading212_logout():
+    """Logout from Trading212 (delete credentials)"""
+    try:
+        token_manager.delete_trading212_token()
+        return {"success": True, "message": "Trading212 logout successful"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/currencies")
