@@ -53,9 +53,13 @@ class Trading212Client:
         if not self.api_key:
             raise ValueError("Trading212 API key is not configured. Please set TRADING212_API_KEY in .env file")
 
-        # For Trading212, we only need the API key (no secret for basic endpoints)
-        # Encode as base64: API_KEY:
-        credentials = f"{self.api_key}:"
+        # Trading212 uses API Key as username and Secret (if provided) as password
+        # Format: API_KEY:API_SECRET (or just API_KEY: if no secret)
+        if self.api_secret:
+            credentials = f"{self.api_key}:{self.api_secret}"
+        else:
+            credentials = f"{self.api_key}:"
+
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
         self._auth_header = f"Basic {encoded_credentials}"
         logger.info("Trading212 authentication prepared")

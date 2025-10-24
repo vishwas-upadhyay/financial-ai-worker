@@ -16,6 +16,7 @@ from config.settings import settings
 from src.brokers.zerodha_client import ZerodhaClient
 from src.brokers.trading212_client import Trading212Client
 from src.analytics.portfolio_analyzer import PortfolioAnalyzer, PortfolioMetrics
+from src.services.currency_converter import currency_converter
 from src.models.portfolio_models import (
     PortfolioResponse,
     OrderRequest,
@@ -135,6 +136,41 @@ async def health_check():
     }
 
 
+@app.get("/currencies")
+async def get_supported_currencies():
+    """Get list of supported currencies"""
+    return {
+        "currencies": currency_converter.get_supported_currencies(),
+        "default": "INR",
+        "note": "Trading212 portfolio is in EUR, Zerodha portfolio is in INR"
+    }
+
+
+@app.get("/exchange-rate/{from_currency}/{to_currency}")
+async def get_exchange_rate(from_currency: str, to_currency: str):
+    """Get exchange rate between two currencies"""
+    try:
+        rates = await currency_converter.get_exchange_rates(from_currency.upper())
+        if not rates:
+            raise HTTPException(status_code=500, detail="Could not fetch exchange rates")
+
+        to_currency = to_currency.upper()
+        if to_currency not in rates:
+            raise HTTPException(status_code=404, detail=f"Currency {to_currency} not found")
+
+        return {
+            "from": from_currency.upper(),
+            "to": to_currency,
+            "rate": rates[to_currency],
+            "timestamp": datetime.now().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching exchange rate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/portfolio/zerodha", response_model=PortfolioResponse)
 async def get_zerodha_portfolio():
     """Get Zerodha portfolio holdings"""
@@ -193,9 +229,20 @@ async def get_zerodha_portfolio():
 
 
 @app.get("/portfolio/trading212", response_model=PortfolioResponse)
-async def get_trading212_portfolio():
-    """Get Trading 212 portfolio holdings"""
+async def get_trading212_portfolio(currency: Optional[str] = None):
+    """
+    Get Trading 212 portfolio holdings
+
+    Query Parameters:
+        currency: Target currency for display (INR or EUR). Default: EUR (original)
+    """
     try:
+        # Validate currency
+        if currency and currency.upper() not in ['INR', 'EUR']:
+            raise HTTPException(
+                status_code=400,
+                detail="Only INR and EUR currencies are supported"
+            )
         async with Trading212Client() as client:
             # Get portfolio data (returns list of positions)
             positions_data = await client.get_portfolio()
@@ -245,6 +292,17 @@ async def get_trading212_portfolio():
             total_pnl = total_value - total_investment
             total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
 
+            # Convert currency if requested
+            source_currency = "EUR"  # Trading212 default currency
+            display_currency = currency.upper() if currency else source_currency
+
+            if display_currency != source_currency:
+                logger.info(f"Converting portfolio from {source_currency} to {display_currency}")
+                holdings, total_value, total_investment, total_pnl = await currency_converter.convert_portfolio(
+                    holdings, source_currency, display_currency
+                )
+                total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+
             return PortfolioResponse(
                 broker="trading212",
                 total_value=total_value,
@@ -261,22 +319,33 @@ async def get_trading212_portfolio():
 
 
 @app.get("/portfolio/combined", response_model=PortfolioResponse)
-async def get_combined_portfolio():
-    """Get combined portfolio from all brokers"""
+async def get_combined_portfolio(currency: Optional[str] = "INR"):
+    """
+    Get combined portfolio from all brokers
+
+    Query Parameters:
+        currency: Target currency for display (INR or EUR). Default: INR
+    """
     try:
+        # Validate currency
+        if currency and currency.upper() not in ['INR', 'EUR']:
+            raise HTTPException(
+                status_code=400,
+                detail="Only INR and EUR currencies are supported"
+            )
         # Get portfolios from all brokers
         zerodha_portfolio = None
         trading212_portfolio = None
         
-        # Try to get Zerodha portfolio
+        # Try to get Zerodha portfolio (in INR by default)
         try:
             zerodha_portfolio = await get_zerodha_portfolio()
         except Exception as e:
             logger.warning(f"Could not fetch Zerodha portfolio: {e}")
-        
-        # Try to get Trading 212 portfolio
+
+        # Try to get Trading 212 portfolio (convert to target currency)
         try:
-            trading212_portfolio = await get_trading212_portfolio()
+            trading212_portfolio = await get_trading212_portfolio(currency=currency)
         except Exception as e:
             logger.warning(f"Could not fetch Trading 212 portfolio: {e}")
         
@@ -286,13 +355,26 @@ async def get_combined_portfolio():
         total_investment = 0
         total_pnl = 0
         
+        target_currency = currency.upper() if currency else "INR"
+
         if zerodha_portfolio:
-            all_holdings.extend(zerodha_portfolio.holdings)
-            total_value += zerodha_portfolio.total_value
-            total_investment += zerodha_portfolio.total_investment
-            total_pnl += zerodha_portfolio.total_pnl
-        
+            # Zerodha is in INR, convert if needed
+            if target_currency != "INR":
+                holdings_converted, value_conv, investment_conv, pnl_conv = await currency_converter.convert_portfolio(
+                    zerodha_portfolio.holdings, "INR", target_currency
+                )
+                all_holdings.extend(holdings_converted)
+                total_value += value_conv
+                total_investment += investment_conv
+                total_pnl += pnl_conv
+            else:
+                all_holdings.extend(zerodha_portfolio.holdings)
+                total_value += zerodha_portfolio.total_value
+                total_investment += zerodha_portfolio.total_investment
+                total_pnl += zerodha_portfolio.total_pnl
+
         if trading212_portfolio:
+            # Trading212 is already converted to target currency
             all_holdings.extend(trading212_portfolio.holdings)
             total_value += trading212_portfolio.total_value
             total_investment += trading212_portfolio.total_investment
