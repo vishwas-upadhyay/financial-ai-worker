@@ -197,32 +197,54 @@ async def get_trading212_portfolio():
     """Get Trading 212 portfolio holdings"""
     try:
         async with Trading212Client() as client:
-            # Get portfolio data
-            portfolio_data = await client.get_portfolio()
-            positions_data = await client.get_positions()
-            
+            # Get portfolio data (returns list of positions)
+            positions_data = await client.get_portfolio()
+
+            # Get account cash info for additional metrics
+            try:
+                cash_data = await client.get_account_cash()
+            except Exception as e:
+                logger.warning(f"Could not fetch cash data: {e}")
+                cash_data = {}
+
             # Process holdings
             holdings = []
-            for position in positions_data.get('data', []):
+            total_value = 0
+            total_investment = 0
+
+            for position in positions_data:
+                # Trading212 API returns: ticker, quantity, averagePrice, currentPrice, ppl, fxPpl
+                ticker = position.get('ticker', '')
+                quantity = position.get('quantity', 0)
+                avg_price = position.get('averagePrice', 0)
+                current_price = position.get('currentPrice', 0)
+                ppl = position.get('ppl', 0)  # Profit/Loss in position currency
+
+                # Calculate values
+                invested_value = quantity * avg_price
+                current_value = quantity * current_price
+                pnl_percentage = (ppl / invested_value * 100) if invested_value > 0 else 0
+
                 holdings.append({
-                    'symbol': position.get('symbol'),
-                    'quantity': position.get('quantity', 0),
-                    'average_price': position.get('average_price', 0),
-                    'current_price': position.get('current_price', 0),
-                    'current_value': position.get('current_value', 0),
-                    'invested_value': position.get('invested_value', 0),
-                    'pnl': position.get('pnl', 0),
-                    'pnl_percentage': position.get('pnl_percentage', 0),
-                    'day_pnl': position.get('day_pnl', 0),
-                    'asset_type': position.get('asset_type', 'equity')
+                    'symbol': ticker,
+                    'quantity': quantity,
+                    'average_price': avg_price,
+                    'current_price': current_price,
+                    'current_value': current_value,
+                    'invested_value': invested_value,
+                    'pnl': ppl,
+                    'pnl_percentage': pnl_percentage,
+                    'day_pnl': 0,  # Trading212 doesn't provide daily P&L in basic API
+                    'asset_type': 'equity'
                 })
-            
+
+                total_value += current_value
+                total_investment += invested_value
+
             # Calculate total metrics
-            total_value = sum(h['current_value'] for h in holdings)
-            total_investment = sum(h['invested_value'] for h in holdings)
             total_pnl = total_value - total_investment
             total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-            
+
             return PortfolioResponse(
                 broker="trading212",
                 total_value=total_value,
@@ -232,7 +254,7 @@ async def get_trading212_portfolio():
                 holdings=holdings,
                 last_updated=datetime.now().isoformat()
             )
-            
+
     except Exception as e:
         logger.error(f"Error fetching Trading 212 portfolio: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,10 +1,12 @@
 """
-Trading 212 MCP Server Client
+Trading 212 API Client
 Handles all interactions with Trading 212 API
+Official API docs: https://t212public-api-docs.redoc.ly/
 """
 import asyncio
 import httpx
 import json
+import base64
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import logging
@@ -15,146 +17,159 @@ logger = logging.getLogger(__name__)
 
 class Trading212Client:
     """Client for interacting with Trading 212 API"""
-    
-    def __init__(self):
-        self.username = settings.trading212_username
-        self.password = settings.trading212_password
+
+    def __init__(self, use_demo: bool = False):
+        """
+        Initialize Trading212 client
+
+        Args:
+            use_demo: If True, use demo/paper trading environment
+        """
         self.api_key = settings.trading212_api_key
-        self.base_url = "https://live.trading212.com/api/v1"
+        self.api_secret = settings.trading212_api_secret
+
+        # Choose base URL based on environment
+        if use_demo:
+            self.base_url = "https://demo.trading212.com/api/v0"
+        else:
+            self.base_url = "https://live.trading212.com/api/v0"
+
         self.session = None
-        self.auth_token = None
+        self._auth_header = None
         
     async def __aenter__(self):
         """Async context manager entry"""
-        self.session = httpx.AsyncClient()
-        await self._authenticate()
+        self.session = httpx.AsyncClient(timeout=30.0)
+        self._prepare_auth()
         return self
-        
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit"""
         if self.session:
             await self.session.aclose()
-    
-    async def _authenticate(self):
-        """Authenticate with Trading 212 API"""
-        try:
-            auth_data = {
-                "username": self.username,
-                "password": self.password
-            }
-            async with self.session.post(
-                f"{self.base_url}/auth/login",
-                json=auth_data
-            ) as response:
-                response.raise_for_status()
-                auth_response = await response.json()
-                self.auth_token = auth_response.get("token")
-        except Exception as e:
-            logger.error(f"Error authenticating with Trading 212: {e}")
-            raise
-    
+
+    def _prepare_auth(self):
+        """Prepare HTTP Basic Authentication header"""
+        if not self.api_key:
+            raise ValueError("Trading212 API key is not configured. Please set TRADING212_API_KEY in .env file")
+
+        # For Trading212, we only need the API key (no secret for basic endpoints)
+        # Encode as base64: API_KEY:
+        credentials = f"{self.api_key}:"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        self._auth_header = f"Basic {encoded_credentials}"
+        logger.info("Trading212 authentication prepared")
+
     def _get_headers(self) -> Dict[str, str]:
         """Get authentication headers"""
         return {
-            "Authorization": f"Bearer {self.auth_token}",
+            "Authorization": self._auth_header,
             "Content-Type": "application/json"
         }
     
     async def get_account_info(self) -> Dict[str, Any]:
-        """Get account information"""
+        """
+        Get account information
+        Rate limit: 1 request per 30 seconds
+        """
         try:
-            async with self.session.get(
-                f"{self.base_url}/account",
+            response = await self.session.get(
+                f"{self.base_url}/equity/account/info",
                 headers=self._get_headers()
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching account info: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
             logger.error(f"Error fetching account info: {e}")
             raise
-    
-    async def get_portfolio(self) -> Dict[str, Any]:
-        """Get current portfolio holdings"""
+
+    async def get_account_cash(self) -> Dict[str, Any]:
+        """
+        Get detailed cash balance and investment metrics
+        Rate limit: 1 request per 2 seconds
+        """
         try:
-            async with self.session.get(
-                f"{self.base_url}/portfolio",
+            response = await self.session.get(
+                f"{self.base_url}/equity/account/cash",
                 headers=self._get_headers()
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching cash info: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching cash info: {e}")
+            raise
+
+    async def get_portfolio(self) -> List[Dict[str, Any]]:
+        """
+        Get current portfolio holdings (all positions)
+        Rate limit: 1 request per 5 seconds
+        Returns: List of positions with quantity, average price, current price, etc.
+        """
+        try:
+            response = await self.session.get(
+                f"{self.base_url}/equity/portfolio",
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching portfolio: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
             logger.error(f"Error fetching portfolio: {e}")
             raise
-    
-    async def get_positions(self) -> Dict[str, Any]:
-        """Get current positions"""
+
+    async def get_positions(self) -> List[Dict[str, Any]]:
+        """Alias for get_portfolio() for compatibility"""
+        return await self.get_portfolio()
+
+    async def get_position_by_ticker(self, ticker: str) -> Dict[str, Any]:
+        """
+        Get specific position by ticker symbol
+        Rate limit: 1 request per second
+
+        Args:
+            ticker: Ticker symbol (e.g., "AAPL_US_EQ")
+        """
         try:
-            async with self.session.get(
-                f"{self.base_url}/positions",
+            response = await self.session.get(
+                f"{self.base_url}/equity/portfolio/{ticker}",
                 headers=self._get_headers()
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching position for {ticker}: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
-            logger.error(f"Error fetching positions: {e}")
+            logger.error(f"Error fetching position for {ticker}: {e}")
             raise
     
-    async def get_orders(self, status: str = "all") -> Dict[str, Any]:
-        """Get order history"""
+    async def get_orders(self) -> List[Dict[str, Any]]:
+        """
+        Get order history
+        Rate limit: 1 request per 5 seconds
+        """
         try:
-            params = {"status": status} if status != "all" else {}
-            async with self.session.get(
-                f"{self.base_url}/orders",
-                headers=self._get_headers(),
-                params=params
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
+            response = await self.session.get(
+                f"{self.base_url}/equity/history/orders",
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching orders: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
             logger.error(f"Error fetching orders: {e}")
             raise
-    
-    async def get_historical_data(
-        self, 
-        symbol: str, 
-        from_date: str, 
-        to_date: str, 
-        interval: str = "1d"
-    ) -> Dict[str, Any]:
-        """Get historical data for a symbol"""
-        try:
-            params = {
-                "symbol": symbol,
-                "from": from_date,
-                "to": to_date,
-                "interval": interval
-            }
-            async with self.session.get(
-                f"{self.base_url}/market/history",
-                headers=self._get_headers(),
-                params=params
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except Exception as e:
-            logger.error(f"Error fetching historical data: {e}")
-            raise
-    
-    async def get_quote(self, symbols: List[str]) -> Dict[str, Any]:
-        """Get live quotes for symbols"""
-        try:
-            params = {"symbols": ",".join(symbols)}
-            async with self.session.get(
-                f"{self.base_url}/market/quote",
-                headers=self._get_headers(),
-                params=params
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except Exception as e:
-            logger.error(f"Error fetching quotes: {e}")
-            raise
-    
+
     async def place_order(
         self,
         symbol: str,
@@ -164,100 +179,53 @@ class Trading212Client:
         price: Optional[float] = None,
         stop_price: Optional[float] = None
     ) -> Dict[str, Any]:
-        """Place a new order"""
+        """
+        Place a market order (live trading only)
+        Rate limit: 1 request per 5 seconds
+
+        Args:
+            symbol: Ticker symbol
+            side: "BUY" or "SELL"
+            quantity: Number of shares
+            order_type: Only "market" is supported for live trading
+            price: Limit price (not supported for market orders)
+            stop_price: Stop price (not supported for market orders)
+        """
         try:
             data = {
-                "symbol": symbol,
-                "side": side,
                 "quantity": quantity,
-                "order_type": order_type
+                "ticker": symbol
             }
-            if price:
-                data["price"] = price
-            if stop_price:
-                data["stop_price"] = stop_price
-                
-            async with self.session.post(
-                f"{self.base_url}/orders",
+
+            response = await self.session.post(
+                f"{self.base_url}/equity/orders/{side.lower()}",
                 headers=self._get_headers(),
                 json=data
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error placing order: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
             logger.error(f"Error placing order: {e}")
             raise
-    
-    async def modify_order(
-        self,
-        order_id: str,
-        quantity: Optional[float] = None,
-        price: Optional[float] = None,
-        stop_price: Optional[float] = None
-    ) -> Dict[str, Any]:
-        """Modify an existing order"""
+
+    async def get_instruments(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available instruments
+        Rate limit: 1 request per 30 seconds
+        """
         try:
-            data = {}
-            if quantity:
-                data["quantity"] = quantity
-            if price:
-                data["price"] = price
-            if stop_price:
-                data["stop_price"] = stop_price
-                
-            async with self.session.put(
-                f"{self.base_url}/orders/{order_id}",
-                headers=self._get_headers(),
-                json=data
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except Exception as e:
-            logger.error(f"Error modifying order: {e}")
-            raise
-    
-    async def cancel_order(self, order_id: str) -> Dict[str, Any]:
-        """Cancel an existing order"""
-        try:
-            async with self.session.delete(
-                f"{self.base_url}/orders/{order_id}",
+            response = await self.session.get(
+                f"{self.base_url}/equity/metadata/instruments",
                 headers=self._get_headers()
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except Exception as e:
-            logger.error(f"Error cancelling order: {e}")
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching instruments: {e.response.status_code} - {e.response.text}")
             raise
-    
-    async def get_market_data(self, symbols: List[str]) -> Dict[str, Any]:
-        """Get market data for symbols"""
-        try:
-            params = {"symbols": ",".join(symbols)}
-            async with self.session.get(
-                f"{self.base_url}/market/data",
-                headers=self._get_headers(),
-                params=params
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except Exception as e:
-            logger.error(f"Error fetching market data: {e}")
-            raise
-    
-    async def get_instruments(self, category: Optional[str] = None) -> Dict[str, Any]:
-        """Get list of available instruments"""
-        try:
-            params = {}
-            if category:
-                params["category"] = category
-                
-            async with self.session.get(
-                f"{self.base_url}/instruments",
-                headers=self._get_headers(),
-                params=params
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
         except Exception as e:
             logger.error(f"Error fetching instruments: {e}")
             raise

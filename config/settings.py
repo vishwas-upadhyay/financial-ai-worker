@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     zerodha_redirect_url: str = "http://localhost:8000/zerodha/callback"
     
     # Trading 212 Configuration
-    trading212_username: Optional[str] = None
-    trading212_password: Optional[str] = None
+    # Get your API key from: https://www.trading212.com/en/profile -> Settings -> API (Beta)
     trading212_api_key: Optional[str] = None
+    trading212_api_secret: Optional[str] = None  # Not required for basic endpoints
     
     # Security
     secret_key: str = "your-secret-key-change-this-in-production"
