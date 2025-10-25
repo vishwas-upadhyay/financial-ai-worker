@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     log_file: str = "logs/financial_ai_worker.log"
-    
+
+    # AI Configuration
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

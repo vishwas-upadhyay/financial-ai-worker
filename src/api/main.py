@@ -25,6 +25,18 @@ from src.models.portfolio_models import (
     AnalysisRequest,
     AnalysisResponse
 )
+from src.models.ai_models import (
+    RecommendationResponse,
+    AIConfigResponse,
+    AIConfigUpdate,
+    StockAnalysisRequest,
+    MarketAnalysisResponse,
+    TechnicalIndicatorsResponse,
+    RecommendationApproval
+)
+from src.ai.recommendation_engine import recommendation_engine
+from src.ai.market_data_aggregator import market_data
+from src.ai.technical_indicators import technical_indicators
 from pydantic import BaseModel
 
 # Configure logging
@@ -140,8 +152,20 @@ async def dashboard():
         return HTMLResponse(content=f.read())
 
 
+@app.get("/ai-dashboard", response_class=HTMLResponse)
+async def ai_dashboard():
+    """Serve the AI recommendations dashboard"""
+    dashboard_path = Path(__file__).parent.parent / "web" / "ai_dashboard.html"
+
+    if not dashboard_path.exists():
+        raise HTTPException(status_code=404, detail="AI Dashboard not found")
+
+    with open(dashboard_path, 'r') as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.get("/settings", response_class=HTMLResponse)
-async def settings():
+async def get_settings_page():
     """Serve the broker settings page"""
     settings_path = Path(__file__).parent.parent / "web" / "settings.html"
 
@@ -169,18 +193,24 @@ async def get_auth_status():
 
 
 @app.get("/auth/zerodha/login-url")
-async def get_zerodha_login_url():
+async def get_zerodha_login_url(api_key: Optional[str] = None):
     """Get Zerodha login URL for OAuth"""
-    api_key = settings.zerodha_api_key
-    if not api_key:
-        raise HTTPException(status_code=400, detail="Zerodha API key not configured in settings")
+    # Use provided API key or fall back to settings
+    key = api_key or settings.zerodha_api_key
+
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide API key in the form first. Get it from https://developers.kite.trade/"
+        )
 
     redirect_url = settings.zerodha_redirect_url
-    login_url = f"https://kite.zerodha.com/connect/login?api_key={api_key}&v=3"
+    login_url = f"https://kite.zerodha.com/connect/login?api_key={key}&v=3"
 
     return {
         "login_url": login_url,
         "redirect_url": redirect_url,
+        "api_key": key,
         "instructions": "After login, you'll be redirected with a request_token. Use that token to complete authentication."
     }
 
@@ -309,15 +339,26 @@ async def get_exchange_rate(from_currency: str, to_currency: str):
 
 
 @app.get("/portfolio/zerodha", response_model=PortfolioResponse)
-async def get_zerodha_portfolio():
-    """Get Zerodha portfolio holdings"""
+async def get_zerodha_portfolio(currency: Optional[str] = None):
+    """
+    Get Zerodha portfolio holdings
+
+    Query Parameters:
+        currency: Target currency for display (INR or EUR). Default: INR (original)
+    """
     try:
+        # Validate currency
+        if currency and currency.upper() not in ['INR', 'EUR']:
+            raise HTTPException(
+                status_code=400,
+                detail="Only INR and EUR currencies are supported"
+            )
         async with ZerodhaClient() as client:
             # Get portfolio data
             holdings_data = await client.get_portfolio()
             positions_data = await client.get_positions()
             margins_data = await client.get_margins()
-            
+
             # Process holdings
             holdings = []
             # Extract holdings from response
@@ -343,13 +384,24 @@ async def get_zerodha_portfolio():
                     'day_pnl': holding.get('day_change', 0),
                     'asset_type': 'equity'
                 })
-            
+
             # Calculate total metrics
             total_value = sum(h['current_value'] for h in holdings)
             total_investment = sum(h['invested_value'] for h in holdings)
             total_pnl = total_value - total_investment
             total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-            
+
+            # Convert currency if requested
+            source_currency = "INR"  # Zerodha default currency
+            display_currency = currency.upper() if currency else source_currency
+
+            if display_currency != source_currency:
+                logger.info(f"Converting Zerodha portfolio from {source_currency} to {display_currency}")
+                holdings, total_value, total_investment, total_pnl = await currency_converter.convert_portfolio(
+                    holdings, source_currency, display_currency
+                )
+                total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+
             return PortfolioResponse(
                 broker="zerodha",
                 total_value=total_value,
@@ -359,7 +411,7 @@ async def get_zerodha_portfolio():
                 holdings=holdings,
                 last_updated=datetime.now().isoformat()
             )
-            
+
     except Exception as e:
         logger.error(f"Error fetching Zerodha portfolio: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -474,9 +526,9 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
         zerodha_portfolio = None
         trading212_portfolio = None
         
-        # Try to get Zerodha portfolio (in INR by default)
+        # Try to get Zerodha portfolio (convert to target currency)
         try:
-            zerodha_portfolio = await get_zerodha_portfolio()
+            zerodha_portfolio = await get_zerodha_portfolio(currency=currency)
         except Exception as e:
             logger.warning(f"Could not fetch Zerodha portfolio: {e}")
 
@@ -485,30 +537,19 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
             trading212_portfolio = await get_trading212_portfolio(currency=currency)
         except Exception as e:
             logger.warning(f"Could not fetch Trading 212 portfolio: {e}")
-        
+
         # Combine portfolios
         all_holdings = []
         total_value = 0
         total_investment = 0
         total_pnl = 0
-        
-        target_currency = currency.upper() if currency else "INR"
 
         if zerodha_portfolio:
-            # Zerodha is in INR, convert if needed
-            if target_currency != "INR":
-                holdings_converted, value_conv, investment_conv, pnl_conv = await currency_converter.convert_portfolio(
-                    zerodha_portfolio.holdings, "INR", target_currency
-                )
-                all_holdings.extend(holdings_converted)
-                total_value += value_conv
-                total_investment += investment_conv
-                total_pnl += pnl_conv
-            else:
-                all_holdings.extend(zerodha_portfolio.holdings)
-                total_value += zerodha_portfolio.total_value
-                total_investment += zerodha_portfolio.total_investment
-                total_pnl += zerodha_portfolio.total_pnl
+            # Zerodha is already converted to target currency
+            all_holdings.extend(zerodha_portfolio.holdings)
+            total_value += zerodha_portfolio.total_value
+            total_investment += zerodha_portfolio.total_investment
+            total_pnl += zerodha_portfolio.total_pnl
 
         if trading212_portfolio:
             # Trading212 is already converted to target currency
@@ -662,6 +703,337 @@ async def place_trading212_order(order: OrderRequest):
             
     except Exception as e:
         logger.error(f"Error placing Trading 212 order: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AI RECOMMENDATION ENDPOINTS
+# ============================================================================
+
+# Global AI config storage (in production, use database)
+ai_config = AIConfigResponse()
+recommendations_store = {}  # Store recommendations by ID
+
+
+@app.post("/ai/analyze", response_model=RecommendationResponse)
+async def analyze_stock(request: StockAnalysisRequest):
+    """
+    Analyze a stock and generate AI recommendation
+
+    Args:
+        request: Stock analysis request with symbol and exchange
+
+    Returns:
+        AI recommendation with buy/sell/hold signal
+    """
+    try:
+        logger.info(f"AI analysis requested for {request.symbol}")
+
+        # Get portfolio context if requested
+        portfolio_context = None
+        if request.include_portfolio_context:
+            try:
+                # Check if stock is in portfolio
+                portfolio = await get_combined_portfolio()
+                for holding in portfolio.holdings:
+                    if holding.get('symbol') == request.symbol:
+                        portfolio_context = holding
+                        break
+            except Exception as e:
+                logger.warning(f"Could not fetch portfolio context: {e}")
+
+        # Generate recommendation
+        recommendation = await recommendation_engine.analyze_stock(
+            symbol=request.symbol,
+            exchange=request.exchange,
+            portfolio_context=portfolio_context
+        )
+
+        # Convert to response model
+        rec_id = f"{request.symbol}_{int(datetime.now().timestamp())}"
+        response = RecommendationResponse(
+            id=rec_id,
+            symbol=recommendation.symbol,
+            exchange=request.exchange,
+            action=recommendation.action.value,
+            confidence=recommendation.confidence,
+            current_price=recommendation.current_price,
+            target_price=recommendation.target_price,
+            stop_loss=recommendation.stop_loss,
+            time_horizon=recommendation.time_horizon,
+            reasoning=recommendation.reasoning,
+            technical_score=recommendation.technical_score,
+            sentiment_score=recommendation.sentiment_score,
+            ai_score=recommendation.ai_score,
+            key_points=recommendation.key_points,
+            risks=recommendation.risks,
+            opportunities=recommendation.opportunities,
+            created_at=recommendation.created_at
+        )
+
+        # Store recommendation
+        recommendations_store[rec_id] = response
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Error in AI analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ai/recommendations")
+async def get_recommendations(
+    limit: int = 10,
+    action: Optional[str] = None
+):
+    """
+    Get all AI recommendations
+
+    Args:
+        limit: Maximum number of recommendations to return
+        action: Filter by action type (buy, sell, hold)
+
+    Returns:
+        List of recommendations
+    """
+    try:
+        recs = list(recommendations_store.values())
+
+        # Filter by action if specified
+        if action:
+            recs = [r for r in recs if r.action == action.lower()]
+
+        # Sort by created_at descending
+        recs.sort(key=lambda x: x.created_at, reverse=True)
+
+        return {
+            "recommendations": recs[:limit],
+            "total": len(recs)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting recommendations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ai/recommendations/{rec_id}", response_model=RecommendationResponse)
+async def get_recommendation(rec_id: str):
+    """Get a specific recommendation by ID"""
+    if rec_id not in recommendations_store:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+
+    return recommendations_store[rec_id]
+
+
+@app.post("/ai/recommendations/{rec_id}/approve")
+async def approve_recommendation(rec_id: str, approval: RecommendationApproval):
+    """
+    Approve or reject a recommendation
+
+    Args:
+        rec_id: Recommendation ID
+        approval: Approval decision
+
+    Returns:
+        Success message and execution details
+    """
+    try:
+        if rec_id not in recommendations_store:
+            raise HTTPException(status_code=404, detail="Recommendation not found")
+
+        recommendation = recommendations_store[rec_id]
+
+        if not approval.approved:
+            return {
+                "success": True,
+                "message": "Recommendation rejected",
+                "recommendation_id": rec_id
+            }
+
+        # TODO: Implement actual trade execution
+        # This will be implemented in Phase 3 (Automation)
+        return {
+            "success": True,
+            "message": "Recommendation approved. Trade execution will be implemented in Phase 3.",
+            "recommendation_id": rec_id,
+            "symbol": recommendation.symbol,
+            "action": recommendation.action,
+            "quantity": approval.quantity,
+            "notes": approval.notes,
+            "warning": "Manual execution required - automated trading not yet implemented"
+        }
+
+    except Exception as e:
+        logger.error(f"Error approving recommendation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ai/config", response_model=AIConfigResponse)
+async def get_ai_config():
+    """Get current AI configuration"""
+    return ai_config
+
+
+@app.put("/ai/config", response_model=AIConfigResponse)
+async def update_ai_config(config_update: AIConfigUpdate):
+    """
+    Update AI configuration
+
+    Args:
+        config_update: AI configuration updates
+
+    Returns:
+        Updated AI configuration
+    """
+    try:
+        global ai_config
+
+        # Update only provided fields
+        update_data = config_update.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(ai_config, field, value)
+
+        logger.info(f"AI config updated: {update_data}")
+
+        return ai_config
+
+    except Exception as e:
+        logger.error(f"Error updating AI config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ai/technical-indicators/{symbol}")
+async def get_technical_indicators(symbol: str, exchange: str = "NSE"):
+    """
+    Get technical indicators for a stock
+
+    Args:
+        symbol: Stock symbol
+        exchange: Exchange (NSE, BSE, NYSE, NASDAQ)
+
+    Returns:
+        Technical indicators and signals
+    """
+    try:
+        # Fetch historical data
+        historical_data = await market_data.get_historical_data(
+            symbol, exchange, period="6mo"
+        )
+
+        if historical_data is None or historical_data.empty:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No historical data found for {symbol}"
+            )
+
+        # Calculate indicators
+        indicators_data = technical_indicators.get_all_indicators(historical_data)
+
+        return {
+            "symbol": symbol,
+            "exchange": exchange,
+            **indicators_data
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting technical indicators: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ai/market-analysis")
+async def get_market_analysis():
+    """
+    Get overall market analysis
+
+    Returns:
+        Market sentiment, trends, and top recommendations
+    """
+    try:
+        # Get market indices
+        indices = await market_data.get_market_indices()
+
+        # Calculate market sentiment
+        positive_count = sum(1 for idx in indices.values() if idx.get('change_percent', 0) > 0)
+        total_count = len(indices)
+
+        overall_sentiment = "positive" if positive_count > total_count / 2 else "negative" if positive_count < total_count / 2 else "neutral"
+
+        # Calculate average volatility
+        avg_change = sum(abs(idx.get('change_percent', 0)) for idx in indices.values()) / total_count if total_count > 0 else 0
+        volatility = "high" if avg_change > 2 else "moderate" if avg_change > 1 else "low"
+
+        # Get recent recommendations
+        recent_recs = list(recommendations_store.values())
+        recent_recs.sort(key=lambda x: x.created_at, reverse=True)
+        top_recommendations = recent_recs[:5]
+
+        return {
+            "overall_sentiment": overall_sentiment,
+            "market_trend": "bullish" if overall_sentiment == "positive" else "bearish" if overall_sentiment == "negative" else "sideways",
+            "volatility_index": volatility,
+            "market_indices": indices,
+            "top_recommendations": top_recommendations,
+            "market_summary": f"Market showing {overall_sentiment} sentiment with {volatility} volatility",
+            "analyzed_at": datetime.now()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting market analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ai/portfolio-suggestions")
+async def get_portfolio_suggestions():
+    """
+    Get AI suggestions for current portfolio holdings
+
+    Returns:
+        Recommendations for each holding (hold, add more, reduce, exit)
+    """
+    try:
+        # Get current portfolio
+        portfolio = await get_combined_portfolio()
+
+        suggestions = []
+
+        # Analyze each holding
+        for holding in portfolio.holdings[:10]:  # Limit to top 10 for performance
+            symbol = holding.get('symbol', '')
+
+            if not symbol:
+                continue
+
+            try:
+                # Analyze stock
+                recommendation = await recommendation_engine.analyze_stock(
+                    symbol=symbol,
+                    exchange="NSE" if ".NS" not in symbol else "NSE",
+                    portfolio_context=holding
+                )
+
+                suggestions.append({
+                    "symbol": symbol,
+                    "current_quantity": holding.get('quantity', 0),
+                    "current_value": holding.get('current_value', 0),
+                    "pnl": holding.get('pnl', 0),
+                    "recommendation": recommendation.action.value,
+                    "confidence": recommendation.confidence,
+                    "reasoning": recommendation.reasoning[:200] + "..." if len(recommendation.reasoning) > 200 else recommendation.reasoning
+                })
+
+            except Exception as e:
+                logger.warning(f"Could not analyze {symbol}: {e}")
+                continue
+
+        return {
+            "suggestions": suggestions,
+            "analyzed_count": len(suggestions),
+            "total_holdings": len(portfolio.holdings),
+            "generated_at": datetime.now()
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating portfolio suggestions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
