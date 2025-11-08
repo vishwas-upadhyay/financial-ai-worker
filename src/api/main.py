@@ -20,6 +20,7 @@ from src.brokers.trading212_client import Trading212Client
 from src.analytics.portfolio_analyzer import PortfolioAnalyzer, PortfolioMetrics
 from src.services.currency_converter import currency_converter
 from src.services.token_manager import token_manager
+from src.services.portfolio_cache import portfolio_cache
 from src.models.portfolio_models import (
     PortfolioResponse,
     OrderRequest,
@@ -408,14 +409,16 @@ async def get_exchange_rate(from_currency: str, to_currency: str):
 @app.get("/portfolio/zerodha", response_model=PortfolioResponse)
 async def get_zerodha_portfolio(currency: Optional[str] = None):
     """
-    Get Zerodha portfolio holdings
+    Get Zerodha portfolio holdings with caching fallback
 
     Query Parameters:
         currency: Target currency for display (INR or EUR). Default: INR (original)
     """
+    display_currency = currency.upper() if currency else "INR"
+
     try:
         # Validate currency
-        if currency and currency.upper() not in ['INR', 'EUR']:
+        if currency and display_currency not in ['INR', 'EUR']:
             raise HTTPException(
                 status_code=400,
                 detail="Only INR and EUR currencies are supported"
@@ -498,7 +501,7 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
             logger.info(f"  Free Cash: {free_cash:,.2f}")
             logger.info(f"  Holdings Count: {len(holdings)}")
 
-            return PortfolioResponse(
+            response = PortfolioResponse(
                 broker="zerodha",
                 total_value=total_value,
                 total_investment=total_investment,
@@ -509,22 +512,39 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
                 free_cash=free_cash
             )
 
+            # Cache the response
+            portfolio_cache.save("zerodha", response.dict(), display_currency)
+
+            return response
+
     except Exception as e:
         logger.error(f"Error fetching Zerodha portfolio: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+        # Try to load from cache as fallback
+        cached_data = portfolio_cache.load("zerodha", display_currency)
+        if cached_data and cached_data.get('data'):
+            logger.warning(f"Using cached Zerodha portfolio data (age: {portfolio_cache.get_age(cached_data)})")
+            cached_response = cached_data['data']
+            cached_response['last_updated'] = cached_data['cached_at']
+            cached_response['is_cached'] = True  # Mark as cached data
+            return PortfolioResponse(**cached_response)
+
+        raise HTTPException(status_code=500, detail=f"Failed to fetch portfolio and no cache available: {str(e)}")
 
 
 @app.get("/portfolio/trading212", response_model=PortfolioResponse)
 async def get_trading212_portfolio(currency: Optional[str] = None):
     """
-    Get Trading 212 portfolio holdings
+    Get Trading 212 portfolio holdings with caching fallback
 
     Query Parameters:
         currency: Target currency for display (INR or EUR). Default: EUR (original)
     """
+    display_currency = currency.upper() if currency else "EUR"
+
     try:
         # Validate currency
-        if currency and currency.upper() not in ['INR', 'EUR']:
+        if currency and display_currency not in ['INR', 'EUR']:
             raise HTTPException(
                 status_code=400,
                 detail="Only INR and EUR currencies are supported"
@@ -624,7 +644,7 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
             logger.info(f"  Free Cash: {free_cash:,.2f}")
             logger.info(f"  Holdings Count: {len(holdings)}")
 
-            return PortfolioResponse(
+            response = PortfolioResponse(
                 broker="trading212",
                 total_value=total_value,
                 total_investment=total_investment,
@@ -635,9 +655,24 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                 free_cash=free_cash
             )
 
+            # Cache the response
+            portfolio_cache.save("trading212", response.dict(), display_currency)
+
+            return response
+
     except Exception as e:
         logger.error(f"Error fetching Trading 212 portfolio: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+        # Try to load from cache as fallback
+        cached_data = portfolio_cache.load("trading212", display_currency)
+        if cached_data and cached_data.get('data'):
+            logger.warning(f"Using cached Trading212 portfolio data (age: {portfolio_cache.get_age(cached_data)})")
+            cached_response = cached_data['data']
+            cached_response['last_updated'] = cached_data['cached_at']
+            cached_response['is_cached'] = True  # Mark as cached data
+            return PortfolioResponse(**cached_response)
+
+        raise HTTPException(status_code=500, detail=f"Failed to fetch portfolio and no cache available: {str(e)}")
 
 
 @app.get("/portfolio/combined", response_model=PortfolioResponse)
@@ -648,6 +683,8 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
     Query Parameters:
         currency: Target currency for display (INR or EUR). Default: INR
     """
+    display_currency = currency.upper() if currency else "INR"
+
     try:
         # Validate currency
         if currency and currency.upper() not in ['INR', 'EUR']:
@@ -658,18 +695,38 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
         # Get portfolios from all brokers
         zerodha_portfolio = None
         trading212_portfolio = None
-        
+        free_cash = 0.0
+
         # Try to get Zerodha portfolio (convert to target currency)
         try:
             zerodha_portfolio = await get_zerodha_portfolio(currency=currency)
+            if zerodha_portfolio and zerodha_portfolio.free_cash:
+                free_cash += zerodha_portfolio.free_cash
         except Exception as e:
             logger.warning(f"Could not fetch Zerodha portfolio: {e}")
 
         # Try to get Trading 212 portfolio (convert to target currency)
         try:
             trading212_portfolio = await get_trading212_portfolio(currency=currency)
+            if trading212_portfolio and trading212_portfolio.free_cash:
+                free_cash += trading212_portfolio.free_cash
         except Exception as e:
             logger.warning(f"Could not fetch Trading 212 portfolio: {e}")
+
+        # If both brokers failed, check if we have any data at all
+        if not zerodha_portfolio and not trading212_portfolio:
+            # Try to load from cache as last resort
+            cached_data = portfolio_cache.load("combined", display_currency)
+            if cached_data and cached_data.get('data'):
+                logger.warning(f"Using cached combined portfolio data (age: {portfolio_cache.get_age(cached_data)})")
+                cached_response = cached_data['data']
+                cached_response['last_updated'] = cached_data['cached_at']
+                cached_response['is_cached'] = True  # Mark as cached data
+                return PortfolioResponse(**cached_response)
+            raise HTTPException(
+                status_code=503,
+                detail="All broker APIs are unavailable and no cache exists"
+            )
 
         # Combine portfolios
         all_holdings = []
@@ -690,22 +747,38 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
             total_value += trading212_portfolio.total_value
             total_investment += trading212_portfolio.total_investment
             total_pnl += trading212_portfolio.total_pnl
-        
+
         total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-        
-        return PortfolioResponse(
+
+        response = PortfolioResponse(
             broker="combined",
             total_value=total_value,
             total_investment=total_investment,
             total_pnl=total_pnl,
             total_pnl_percentage=total_pnl_percentage,
             holdings=all_holdings,
-            last_updated=datetime.now().isoformat()
+            last_updated=datetime.now().isoformat(),
+            free_cash=free_cash
         )
-        
+
+        # Cache the combined response
+        portfolio_cache.save("combined", response.dict(), display_currency)
+
+        return response
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching combined portfolio: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Try to load from cache
+        cached_data = portfolio_cache.load("combined", display_currency)
+        if cached_data and cached_data.get('data'):
+            logger.warning(f"Using cached combined portfolio data (age: {portfolio_cache.get_age(cached_data)})")
+            cached_response = cached_data['data']
+            cached_response['last_updated'] = cached_data['cached_at']
+            cached_response['is_cached'] = True  # Mark as cached data
+            return PortfolioResponse(**cached_response)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch combined portfolio and no cache available: {str(e)}")
 
 
 async def _perform_portfolio_analysis(broker: str) -> AnalysisResponse:

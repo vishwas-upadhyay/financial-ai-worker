@@ -3,7 +3,25 @@
     "allow": [
       "Bash(python3:*)",
       "Bash(curl:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh:*)",
+      "WebSearch",
+      "WebFetch(domain:t212public-api-docs.redoc.ly)",
+      "Bash(python test_trading212.py:*)",
+      "Bash(lsof:*)",
+      "Bash(ps:*)",
+      "Bash(kill:*)",
+      "Bash(git push:*)",
+      "Bash(/dev/null)",
+      "Read(//Users/vishwasupadhyay/cursor.ai-workspace/**)",
+      "Bash(pip3 install:*)",
+      "Bash(cat:*)",
+      "Bash(awk:*)",
+      "Bash(while read f)",
+      "Bash(do echo \"$f\")",
+      "Bash(done)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

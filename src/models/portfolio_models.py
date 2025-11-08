@@ -68,7 +68,8 @@ class PortfolioResponse(BaseModel):
     total_pnl_percentage: float
     holdings: List[HoldingModel]
     last_updated: str
-    free_cash: Optional[float] = 0.0  # Available cash (only for Trading212)
+    free_cash: Optional[float] = 0.0  # Available cash (for both brokers)
+    is_cached: Optional[bool] = False  # Indicates if data is from cache
 
 
 class OrderRequest(BaseModel):

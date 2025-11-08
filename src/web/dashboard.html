@@ -235,6 +235,9 @@
             <div id="exchangeRateDisplay" style="padding: 0.75rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; font-weight: 500; color: #2c3e50; display: none;">
                 💱 1 EUR = <span id="exchangeRateValue">...</span> INR
             </div>
+            <div id="cacheIndicator" style="padding: 0.75rem; background: rgba(231, 76, 60, 0.1); border-radius: 5px; font-weight: 500; color: #e74c3c; display: none;">
+                📦 Cached Data
+            </div>
             <button id="analyzeBtn" class="btn btn-secondary">🤖 Analyze Portfolio</button>
         </div>
         
@@ -326,6 +329,7 @@
                 this.showLoading(true);
                 try {
                     const portfolioData = await this.fetchPortfolio();
+                    this.updateCacheIndicator(portfolioData.is_cached);
                     this.updateMetrics(portfolioData);
                     await this.updateCharts(portfolioData);
                     this.showSuccess('Portfolio data refreshed successfully');
@@ -376,7 +380,20 @@
                     displayElement.style.display = 'none';
                 }
             }
-            
+
+            updateCacheIndicator(isCached) {
+                const cacheIndicator = document.getElementById('cacheIndicator');
+
+                if (cacheIndicator) {
+                    if (isCached) {
+                        cacheIndicator.style.display = 'block';
+                        cacheIndicator.innerHTML = '📦 Cached Data (API Unavailable)';
+                    } else {
+                        cacheIndicator.style.display = 'none';
+                    }
+                }
+            }
+
             async fetchAnalysis() {
                 const response = await axios.post(`${this.apiBase}/analyze`, {
                     broker: this.currentBroker,

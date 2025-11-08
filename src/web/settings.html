@@ -398,14 +398,24 @@
 
             async openZerodhaLogin() {
                 try {
-                    const response = await axios.get(`${this.apiBase}/auth/zerodha/login-url`);
+                    // Get API key from input field
+                    const apiKey = document.getElementById('zerodhaApiKeyInput').value;
+
+                    if (!apiKey) {
+                        this.showAlert('error', 'Please enter your Zerodha API Key first');
+                        return;
+                    }
+
+                    // Pass API key as query parameter
+                    const response = await axios.get(`${this.apiBase}/auth/zerodha/login-url?api_key=${apiKey}`);
                     const loginUrl = response.data.login_url;
 
                     this.showAlert('info', 'Opening Zerodha login. After login, copy the request_token from the URL and paste it in the Request Token field below.');
 
                     window.open(loginUrl, '_blank');
                 } catch (error) {
-                    this.showAlert('error', 'Failed to get login URL: ' + error.message);
+                    const message = error.response?.data?.detail || error.message;
+                    this.showAlert('error', 'Failed to get login URL: ' + message);
                 }
             }
 

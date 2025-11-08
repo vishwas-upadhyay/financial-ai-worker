@@ -15,11 +15,29 @@ logger = logging.getLogger(__name__)
 
 class ZerodhaClient:
     """Client for interacting with Zerodha's Kite API"""
-    
+
     def __init__(self):
-        self.api_key = settings.zerodha_api_key
-        self.api_secret = settings.zerodha_api_secret
-        self.access_token = settings.zerodha_access_token
+        # Try to get tokens from token manager first
+        try:
+            from src.services.token_manager import token_manager
+            tokens = token_manager.get_zerodha_token()
+            if tokens:
+                self.api_key = tokens['api_key']
+                self.api_secret = tokens['api_secret']
+                self.access_token = tokens['access_token']
+                logger.info("Using Zerodha tokens from token manager")
+            else:
+                # Fall back to settings
+                self.api_key = settings.zerodha_api_key
+                self.api_secret = settings.zerodha_api_secret
+                self.access_token = settings.zerodha_access_token
+                logger.info("Using Zerodha tokens from settings")
+        except Exception as e:
+            logger.warning(f"Could not load from token manager: {e}. Using settings.")
+            self.api_key = settings.zerodha_api_key
+            self.api_secret = settings.zerodha_api_secret
+            self.access_token = settings.zerodha_access_token
+
         self.base_url = "https://api.kite.trade"
         self.session = None
         
