@@ -68,6 +68,7 @@ class PortfolioResponse(BaseModel):
     total_pnl_percentage: float
     holdings: List[HoldingModel]
     last_updated: str
+    free_cash: Optional[float] = 0.0  # Available cash (only for Trading212)
 
 
 class OrderRequest(BaseModel):

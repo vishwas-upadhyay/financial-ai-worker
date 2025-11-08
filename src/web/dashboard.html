@@ -232,6 +232,9 @@
                 <option value="EUR">€ EUR (Euro)</option>
             </select>
             <button id="refreshBtn" class="btn">🔄 Refresh Data</button>
+            <div id="exchangeRateDisplay" style="padding: 0.75rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; font-weight: 500; color: #2c3e50; display: none;">
+                💱 1 EUR = <span id="exchangeRateValue">...</span> INR
+            </div>
             <button id="analyzeBtn" class="btn btn-secondary">🤖 Analyze Portfolio</button>
         </div>
         
@@ -350,17 +353,28 @@
                 const url = `${this.apiBase}/portfolio/${this.currentBroker}?currency=${this.currentCurrency}`;
                 const response = await axios.get(url);
 
-                // Fetch exchange rate for display
-                if (this.currentCurrency !== 'INR') {
-                    try {
-                        const rateResponse = await axios.get(`${this.apiBase}/exchange-rate/EUR/INR`);
-                        this.exchangeRate = rateResponse.data.rate;
-                    } catch (e) {
-                        console.error('Failed to fetch exchange rate:', e);
-                    }
+                // Always fetch and display EUR to INR exchange rate
+                try {
+                    const rateResponse = await axios.get(`${this.apiBase}/exchange-rate/EUR/INR`);
+                    this.exchangeRate = rateResponse.data.rate;
+                    this.updateExchangeRateDisplay(this.exchangeRate);
+                } catch (e) {
+                    console.error('Failed to fetch exchange rate:', e);
                 }
 
                 return response.data;
+            }
+
+            updateExchangeRateDisplay(rate) {
+                const displayElement = document.getElementById('exchangeRateDisplay');
+                const valueElement = document.getElementById('exchangeRateValue');
+
+                if (rate && displayElement && valueElement) {
+                    valueElement.textContent = rate.toFixed(2);
+                    displayElement.style.display = 'block';
+                } else if (displayElement) {
+                    displayElement.style.display = 'none';
+                }
             }
             
             async fetchAnalysis() {
@@ -375,7 +389,9 @@
             updateMetrics(portfolioData) {
                 const currencySymbol = this.currentCurrency === 'INR' ? '₹' : '€';
                 const metricsGrid = document.getElementById('metricsGrid');
-                metricsGrid.innerHTML = `
+
+                // Build metrics HTML
+                let metricsHTML = `
                     <div class="metric-card">
                         <div class="metric-value">${currencySymbol}${portfolioData.total_value.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
                         <div class="metric-label">💼 Total Value (${this.currentCurrency})</div>
@@ -391,12 +407,25 @@
                             ${portfolioData.total_pnl_percentage >= 0 ? '✅ +' : '❌ '}${Math.abs(portfolioData.total_pnl_percentage).toFixed(2)}%
                         </div>
                         <div class="metric-label">Return %</div>
-                    </div>
+                    </div>`;
+
+                // Add free cash card for both brokers
+                if (portfolioData.free_cash !== undefined && portfolioData.free_cash > 0) {
+                    metricsHTML += `
+                    <div class="metric-card">
+                        <div class="metric-value">💵 ${currencySymbol}${portfolioData.free_cash.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
+                        <div class="metric-label">Available Cash</div>
+                    </div>`;
+                }
+
+                metricsHTML += `
                     <div class="metric-card">
                         <div class="metric-value">📊 ${portfolioData.holdings.length}</div>
                         <div class="metric-label">Holdings</div>
                     </div>
                 `;
+
+                metricsGrid.innerHTML = metricsHTML;
             }
             
             async updateCharts(portfolioData) {

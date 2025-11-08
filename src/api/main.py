@@ -2,12 +2,14 @@
 FastAPI main application
 Financial AI Worker API endpoints
 """
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import logging
+import time
+import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -39,10 +41,24 @@ from src.ai.market_data_aggregator import market_data
 from src.ai.technical_indicators import technical_indicators
 from pydantic import BaseModel
 
-# Configure logging
+# Configure logging with file handler
+log_file = Path(settings.log_file)
+log_file.parent.mkdir(parents=True, exist_ok=True)
+
+# Create file handler
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(getattr(logging, settings.log_level))
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# Create console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(getattr(logging, settings.log_level))
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+# Configure root logger
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    handlers=[file_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
 
@@ -52,6 +68,57 @@ app = FastAPI(
     version=settings.app_version,
     description="Financial AI Worker - Portfolio Analysis and Trading Platform"
 )
+
+# Add request/response logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all API requests and responses for debugging"""
+    request_id = str(time.time())
+    start_time = time.time()
+
+    # Log request
+    logger.info(f"[{request_id}] REQUEST: {request.method} {request.url.path}")
+    logger.info(f"[{request_id}] Query Params: {dict(request.query_params)}")
+    logger.info(f"[{request_id}] Client: {request.client.host if request.client else 'Unknown'}")
+
+    # Log request body for POST/PUT/PATCH
+    if request.method in ["POST", "PUT", "PATCH"]:
+        try:
+            body = await request.body()
+            if body:
+                # Try to parse as JSON for better readability
+                try:
+                    body_json = json.loads(body.decode())
+                    # Mask sensitive fields
+                    if isinstance(body_json, dict):
+                        masked_body = body_json.copy()
+                        for sensitive_key in ['api_key', 'api_secret', 'password', 'token', 'access_token']:
+                            if sensitive_key in masked_body:
+                                masked_body[sensitive_key] = "***MASKED***"
+                        logger.info(f"[{request_id}] Request Body: {json.dumps(masked_body, indent=2)}")
+                    else:
+                        logger.info(f"[{request_id}] Request Body: {body_json}")
+                except json.JSONDecodeError:
+                    logger.info(f"[{request_id}] Request Body (raw): {body.decode()[:500]}")
+        except Exception as e:
+            logger.warning(f"[{request_id}] Could not read request body: {e}")
+
+    # Process request
+    response = await call_next(request)
+
+    # Calculate duration
+    duration = time.time() - start_time
+
+    # Log response
+    logger.info(f"[{request_id}] RESPONSE: Status {response.status_code} | Duration: {duration:.3f}s")
+
+    # For portfolio endpoints, log the response data
+    if request.url.path.startswith("/portfolio/") and response.status_code == 200:
+        # Note: We can't easily read the response body here without breaking streaming
+        # But we can log that it succeeded
+        logger.info(f"[{request_id}] Portfolio data returned successfully")
+
+    return response
 
 # Add CORS middleware
 app.add_middleware(
@@ -391,6 +458,24 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
             total_pnl = total_value - total_investment
             total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
 
+            # Extract available cash from margins
+            free_cash = 0.0
+            if margins_data:
+                logger.info(f"Zerodha Margins Data Structure: {margins_data}")
+
+                # Zerodha margins structure: equity -> available -> cash
+                if isinstance(margins_data, dict):
+                    equity_margin = margins_data.get('equity', {})
+                    if isinstance(equity_margin, dict):
+                        available = equity_margin.get('available', {})
+                        if isinstance(available, dict):
+                            free_cash = available.get('cash', 0.0)
+
+                        # Log the full equity margin structure for debugging
+                        logger.info(f"Equity Margin Structure: {equity_margin}")
+
+                logger.info(f"Zerodha Available Cash: {free_cash:,.2f} INR")
+
             # Convert currency if requested
             source_currency = "INR"  # Zerodha default currency
             display_currency = currency.upper() if currency else source_currency
@@ -402,6 +487,17 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
                 )
                 total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
 
+                # Convert free cash as well
+                free_cash = await currency_converter.convert(free_cash, source_currency, display_currency)
+
+            logger.info(f"Returning Zerodha Portfolio Response:")
+            logger.info(f"  Currency: {display_currency}")
+            logger.info(f"  Total Value: {total_value:,.2f}")
+            logger.info(f"  Total Investment: {total_investment:,.2f}")
+            logger.info(f"  Total P&L: {total_pnl:,.2f} ({total_pnl_percentage:.2f}%)")
+            logger.info(f"  Free Cash: {free_cash:,.2f}")
+            logger.info(f"  Holdings Count: {len(holdings)}")
+
             return PortfolioResponse(
                 broker="zerodha",
                 total_value=total_value,
@@ -409,7 +505,8 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
                 total_pnl=total_pnl,
                 total_pnl_percentage=total_pnl_percentage,
                 holdings=holdings,
-                last_updated=datetime.now().isoformat()
+                last_updated=datetime.now().isoformat(),
+                free_cash=free_cash
             )
 
     except Exception as e:
@@ -436,19 +533,45 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
             # Get portfolio data (returns list of positions)
             positions_data = await client.get_portfolio()
 
-            # Get account cash info for additional metrics
+            # Get account cash info - THIS is the source of truth for portfolio totals
             try:
                 cash_data = await client.get_account_cash()
+                logger.info(f"Trading212 Cash Info (Source of Truth):")
+                logger.info(f"  Free Cash: {cash_data.get('free', 0):.2f} EUR")
+                logger.info(f"  Total: {cash_data.get('total', 0):.2f} EUR")
+                logger.info(f"  Invested: {cash_data.get('invested', 0):.2f} EUR")
+                logger.info(f"  P&L: {cash_data.get('ppl', 0):.2f} EUR")
+                logger.info(f"  Result: {cash_data.get('result', 0):.2f} EUR")
             except Exception as e:
-                logger.warning(f"Could not fetch cash data: {e}")
-                cash_data = {}
+                logger.error(f"Could not fetch cash data: {e}")
+                raise HTTPException(status_code=500, detail="Could not fetch Trading212 account information")
 
-            # Process holdings
+            # Use cash API data for portfolio totals (this is the source of truth per Trading212 API)
+            # According to Trading212 API documentation:
+            # - 'invested' = total amount invested in positions
+            # - 'ppl' = profit/loss on positions
+            # - 'free' = available cash not in positions
+            # - 'total' = complete account value (investments + cash)
+
+            total_investment = cash_data.get('invested', 0)  # Total amount invested
+            total_pnl = cash_data.get('ppl', 0)  # Profit/Loss on investments
+            free_cash = cash_data.get('free', 0)  # Available cash
+            total_value = cash_data.get('total', 0)  # Complete account value (this is what Trading212 shows)
+
+            total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+
+            logger.info(f"Trading212 Portfolio Totals (from Cash API - Source of Truth):")
+            logger.info(f"  Invested: {total_investment:,.2f} EUR")
+            logger.info(f"  P&L: {total_pnl:,.2f} EUR ({total_pnl_percentage:.2f}%)")
+            logger.info(f"  Free Cash: {free_cash:,.2f} EUR")
+            logger.info(f"  Total Portfolio Value: {total_value:,.2f} EUR (invested + pnl + cash)")
+            logger.info(f"  Result field: {cash_data.get('result', 0):,.2f} EUR")
+
+            # Process holdings for detailed breakdown
             holdings = []
-            total_value = 0
-            total_investment = 0
+            logger.info(f"Processing {len(positions_data)} positions from Trading212")
 
-            for position in positions_data:
+            for i, position in enumerate(positions_data, 1):
                 # Trading212 API returns: ticker, quantity, averagePrice, currentPrice, ppl, fxPpl
                 ticker = position.get('ticker', '')
                 quantity = position.get('quantity', 0)
@@ -456,10 +579,14 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                 current_price = position.get('currentPrice', 0)
                 ppl = position.get('ppl', 0)  # Profit/Loss in position currency
 
-                # Calculate values
+                # Calculate values for individual position display
                 invested_value = quantity * avg_price
                 current_value = quantity * current_price
                 pnl_percentage = (ppl / invested_value * 100) if invested_value > 0 else 0
+
+                logger.info(f"  Position {i}: {ticker}")
+                logger.info(f"    Quantity: {quantity}, Avg: {avg_price:.2f}, Current: {current_price:.2f}")
+                logger.info(f"    Invested: {invested_value:.2f}, Value: {current_value:.2f}, P&L: {ppl:.2f}")
 
                 holdings.append({
                     'symbol': ticker,
@@ -474,13 +601,6 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                     'asset_type': 'equity'
                 })
 
-                total_value += current_value
-                total_investment += invested_value
-
-            # Calculate total metrics
-            total_pnl = total_value - total_investment
-            total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-
             # Convert currency if requested
             source_currency = "EUR"  # Trading212 default currency
             display_currency = currency.upper() if currency else source_currency
@@ -491,6 +611,18 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                     holdings, source_currency, display_currency
                 )
                 total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+                logger.info(f"Trading212 Portfolio After Conversion to {display_currency}:")
+                logger.info(f"  Total Value: {total_value:,.2f} {display_currency}")
+                logger.info(f"  Total Investment: {total_investment:,.2f} {display_currency}")
+                logger.info(f"  Total P&L: {total_pnl:,.2f} {display_currency}")
+
+            logger.info(f"Returning Trading212 Portfolio Response:")
+            logger.info(f"  Currency: {display_currency}")
+            logger.info(f"  Total Value: {total_value:,.2f}")
+            logger.info(f"  Total Investment: {total_investment:,.2f}")
+            logger.info(f"  Total P&L: {total_pnl:,.2f} ({total_pnl_percentage:.2f}%)")
+            logger.info(f"  Free Cash: {free_cash:,.2f}")
+            logger.info(f"  Holdings Count: {len(holdings)}")
 
             return PortfolioResponse(
                 broker="trading212",
@@ -499,7 +631,8 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                 total_pnl=total_pnl,
                 total_pnl_percentage=total_pnl_percentage,
                 holdings=holdings,
-                last_updated=datetime.now().isoformat()
+                last_updated=datetime.now().isoformat(),
+                free_cash=free_cash
             )
 
     except Exception as e:
