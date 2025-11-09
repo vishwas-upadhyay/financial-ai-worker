@@ -12,196 +12,371 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f7fa;
-            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            color: #e4e4e7;
+            min-height: 100vh;
+            overflow-x: hidden;
         }
-        
+
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: rgba(30, 30, 46, 0.8);
+            backdrop-filter: blur(10px);
             color: white;
-            padding: 1rem 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem 2rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            border-bottom: 1px solid rgba(139, 92, 246, 0.3);
         }
-        
+
         .header h1 {
-            font-size: 2rem;
+            font-size: clamp(1.5rem, 4vw, 2.5rem);
             margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        
+
         .header p {
-            opacity: 0.9;
+            opacity: 0.8;
+            font-size: clamp(0.875rem, 2vw, 1rem);
         }
-        
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: clamp(1rem, 3vw, 2rem);
         }
-        
+
         .dashboard-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 2rem;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+            gap: clamp(1rem, 2vw, 2rem);
             margin-bottom: 2rem;
         }
-        
+
         .card {
-            background: white;
-            border-radius: 10px;
+            background: rgba(30, 30, 46, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
             padding: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: transform 0.2s ease;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         .card:hover {
-            transform: translateY(-2px);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(139, 92, 246, 0.3);
+            border-color: rgba(139, 92, 246, 0.4);
         }
-        
+
         .card h3 {
-            color: #2c3e50;
+            color: #a78bfa;
             margin-bottom: 1rem;
-            font-size: 1.2rem;
+            font-size: clamp(1rem, 2vw, 1.2rem);
+            font-weight: 600;
         }
-        
+
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+            gap: clamp(0.75rem, 2vw, 1rem);
             margin-bottom: 2rem;
         }
-        
+
         .metric-card {
-            background: white;
-            border-radius: 10px;
-            padding: 1.5rem;
+            background: rgba(30, 30, 46, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.25rem;
             text-align: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            transition: all 0.3s ease;
         }
-        
+
+        .metric-card:hover {
+            transform: scale(1.02);
+            border-color: rgba(139, 92, 246, 0.4);
+        }
+
         .metric-value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #2c3e50;
+            font-size: clamp(1.25rem, 3vw, 2rem);
+            font-weight: 700;
+            color: #e4e4e7;
+            word-break: break-word;
+            line-height: 1.2;
         }
-        
+
         .metric-label {
-            color: #7f8c8d;
+            color: #a1a1aa;
             margin-top: 0.5rem;
+            font-size: clamp(0.75rem, 1.5vw, 0.875rem);
         }
-        
+
         .positive {
-            color: #27ae60;
+            color: #10b981;
         }
-        
+
         .negative {
-            color: #e74c3c;
+            color: #ef4444;
         }
-        
+
         .controls {
             display: flex;
-            gap: 1rem;
+            gap: clamp(0.5rem, 2vw, 1rem);
             margin-bottom: 2rem;
             flex-wrap: wrap;
+            align-items: center;
         }
-        
+
         .btn {
-            background: #3498db;
+            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
             color: white;
             border: none;
             padding: 0.75rem 1.5rem;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 1rem;
-            transition: background 0.2s ease;
+            font-size: clamp(0.875rem, 1.5vw, 1rem);
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
         }
-        
+
         .btn:hover {
-            background: #2980b9;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
         }
-        
+
         .btn-secondary {
-            background: #95a5a6;
+            background: rgba(161, 161, 170, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(161, 161, 170, 0.3);
         }
-        
+
         .btn-secondary:hover {
-            background: #7f8c8d;
+            background: rgba(161, 161, 170, 0.3);
+            border-color: rgba(161, 161, 170, 0.5);
         }
-        
+
         .select {
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 1rem;
+            padding: 0.75rem 1rem;
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 8px;
+            font-size: clamp(0.875rem, 1.5vw, 1rem);
+            background: rgba(30, 30, 46, 0.6);
+            color: #e4e4e7;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            cursor: pointer;
         }
-        
+
+        .select:hover {
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+
+        .select:focus {
+            outline: none;
+            border-color: #a78bfa;
+            box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+        }
+
         .loading {
             text-align: center;
             padding: 2rem;
-            color: #7f8c8d;
+            color: #a1a1aa;
+            font-size: clamp(0.875rem, 2vw, 1rem);
         }
-        
+
         .error {
-            background: #e74c3c;
-            color: white;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
             padding: 1rem;
-            border-radius: 5px;
+            border-radius: 8px;
             margin: 1rem 0;
+            backdrop-filter: blur(10px);
         }
-        
+
         .success {
-            background: #27ae60;
-            color: white;
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #6ee7b7;
             padding: 1rem;
-            border-radius: 5px;
+            border-radius: 8px;
             margin: 1rem 0;
+            backdrop-filter: blur(10px);
         }
-        
+
         .chart-container {
             height: 400px;
             margin: 1rem 0;
+            border-radius: 12px;
+            overflow: hidden;
         }
-        
+
         .recommendations {
-            background: #ecf0f1;
-            border-left: 4px solid #3498db;
+            background: rgba(30, 30, 46, 0.4);
+            border-left: 4px solid #a78bfa;
             padding: 1rem;
             margin: 1rem 0;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
         }
-        
+
         .recommendations h4 {
-            color: #2c3e50;
+            color: #a78bfa;
             margin-bottom: 0.5rem;
+            font-size: clamp(0.875rem, 2vw, 1rem);
         }
-        
+
         .recommendations ul {
             list-style-type: none;
         }
-        
+
         .recommendations li {
             padding: 0.25rem 0;
-            color: #34495e;
+            color: #d4d4d8;
+            font-size: clamp(0.8125rem, 1.5vw, 0.9375rem);
         }
-        
+
         .recommendations li:before {
             content: "• ";
-            color: #3498db;
+            color: #a78bfa;
             font-weight: bold;
         }
-        
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            overflow-x: auto;
+            display: block;
+        }
+
+        thead {
+            background: rgba(139, 92, 246, 0.1);
+        }
+
+        th {
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            color: #a78bfa;
+            font-size: clamp(0.75rem, 1.5vw, 0.875rem);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 0.75rem;
+            border-bottom: 1px solid rgba(139, 92, 246, 0.1);
+            color: #d4d4d8;
+            font-size: clamp(0.75rem, 1.5vw, 0.875rem);
+            word-break: break-word;
+        }
+
+        tr:hover {
+            background: rgba(139, 92, 246, 0.05);
+        }
+
+        /* Smooth scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(30, 30, 46, 0.4);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(139, 92, 246, 0.4);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(139, 92, 246, 0.6);
+        }
+
+        /* Loading animation */
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .loading {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* Fade in animation */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card, .metric-card {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @media (max-width: 1024px) {
+            .metrics-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
         @media (max-width: 768px) {
             .dashboard-grid {
                 grid-template-columns: 1fr;
             }
-            
+
             .metrics-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
-            
+
             .controls {
-                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .btn, .select {
+                width: 100%;
+            }
+
+            th, td {
+                padding: 0.5rem;
+                font-size: 0.75rem;
+            }
+
+            .metric-value {
+                font-size: 1.5rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
+            .card {
+                padding: 1rem;
             }
         }
     </style>
@@ -211,10 +386,10 @@
         <h1>💰 Financial AI Worker</h1>
         <p>📊 Portfolio Analysis & Trading Dashboard</p>
         <div style="margin-top: 1rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-            <a href="/ai-dashboard" style="color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(255,255,255,0.3); border-radius: 5px; display: inline-block; font-weight: 500;">
+            <a href="/ai-dashboard" style="color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(167, 139, 250, 0.3); border-radius: 8px; display: inline-block; font-weight: 500; transition: all 0.3s ease; border: 1px solid rgba(167, 139, 250, 0.5);">
                 🤖 AI Recommendations
             </a>
-            <a href="/settings" style="color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(255,255,255,0.2); border-radius: 5px; display: inline-block;">
+            <a href="/settings" style="color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(167, 139, 250, 0.2); border-radius: 8px; display: inline-block; transition: all 0.3s ease; border: 1px solid rgba(167, 139, 250, 0.3);">
                 ⚙️ Broker Settings
             </a>
         </div>
@@ -227,15 +402,18 @@
                 <option value="zerodha">🇮🇳 Zerodha</option>
                 <option value="trading212">🌍 Trading 212</option>
             </select>
+            <select id="accountSelect" class="select" style="display: none;">
+                <option value="primary">Primary Account</option>
+            </select>
             <select id="currencySelect" class="select">
                 <option value="INR">₹ INR (Indian Rupee)</option>
                 <option value="EUR">€ EUR (Euro)</option>
             </select>
             <button id="refreshBtn" class="btn">🔄 Refresh Data</button>
-            <div id="exchangeRateDisplay" style="padding: 0.75rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; font-weight: 500; color: #2c3e50; display: none;">
+            <div id="exchangeRateDisplay" style="padding: 0.75rem; background: rgba(139, 92, 246, 0.2); border-radius: 8px; font-weight: 500; color: #a78bfa; display: none; border: 1px solid rgba(139, 92, 246, 0.3);">
                 💱 1 EUR = <span id="exchangeRateValue">...</span> INR
             </div>
-            <div id="cacheIndicator" style="padding: 0.75rem; background: rgba(231, 76, 60, 0.1); border-radius: 5px; font-weight: 500; color: #e74c3c; display: none;">
+            <div id="cacheIndicator" style="padding: 0.75rem; background: rgba(239, 68, 68, 0.2); border-radius: 8px; font-weight: 500; color: #fca5a5; display: none; border: 1px solid rgba(239, 68, 68, 0.3);">
                 📦 Cached Data
             </div>
             <button id="analyzeBtn" class="btn btn-secondary">🤖 Analyze Portfolio</button>
@@ -296,6 +474,8 @@
                 this.apiBase = 'http://localhost:8000';
                 this.currentBroker = 'combined';
                 this.currentCurrency = 'INR';
+                this.currentAccount = 'primary';
+                this.accounts = { zerodha: [], trading212: [] };
                 this.exchangeRate = null;
                 this.initializeEventListeners();
                 this.loadInitialData();
@@ -306,6 +486,11 @@
                 document.getElementById('analyzeBtn').addEventListener('click', () => this.analyzePortfolio());
                 document.getElementById('brokerSelect').addEventListener('change', (e) => {
                     this.currentBroker = e.target.value;
+                    this.updateAccountSelector();
+                    this.refreshData();
+                });
+                document.getElementById('accountSelect').addEventListener('change', (e) => {
+                    this.currentAccount = e.target.value;
                     this.refreshData();
                 });
                 document.getElementById('currencySelect').addEventListener('change', (e) => {
@@ -317,11 +502,49 @@
             async loadInitialData() {
                 this.showLoading(true);
                 try {
+                    await this.loadAccounts();
                     await this.refreshData();
                 } catch (error) {
                     this.showError('Failed to load initial data: ' + error.message);
                 } finally {
                     this.showLoading(false);
+                }
+            }
+
+            async loadAccounts() {
+                try {
+                    const response = await axios.get(`${this.apiBase}/accounts/list`);
+                    this.accounts = response.data;
+                    console.log('Loaded accounts:', this.accounts);
+                } catch (error) {
+                    console.error('Failed to load accounts:', error);
+                }
+            }
+
+            updateAccountSelector() {
+                const accountSelect = document.getElementById('accountSelect');
+                const broker = this.currentBroker;
+
+                // Show account selector only for specific brokers (not combined)
+                if (broker === 'zerodha' || broker === 'trading212') {
+                    const accountList = this.accounts[broker] || ['primary'];
+
+                    // Clear and populate options
+                    accountSelect.innerHTML = '';
+                    accountList.forEach(account => {
+                        const option = document.createElement('option');
+                        option.value = account;
+                        option.textContent = account.charAt(0).toUpperCase() + account.slice(1);
+                        accountSelect.appendChild(option);
+                    });
+
+                    // Set current account to first available
+                    this.currentAccount = accountList[0] || 'primary';
+                    accountSelect.value = this.currentAccount;
+                    accountSelect.style.display = 'inline-block';
+                } else {
+                    // Hide account selector for combined view
+                    accountSelect.style.display = 'none';
                 }
             }
             
@@ -354,7 +577,16 @@
             }
             
             async fetchPortfolio() {
-                const url = `${this.apiBase}/portfolio/${this.currentBroker}?currency=${this.currentCurrency}`;
+                let url;
+
+                if (this.currentBroker === 'zerodha' || this.currentBroker === 'trading212') {
+                    // Single broker with account selection
+                    url = `${this.apiBase}/portfolio/${this.currentBroker}?currency=${this.currentCurrency}&account=${this.currentAccount}`;
+                } else {
+                    // Combined portfolio (all accounts from all brokers)
+                    url = `${this.apiBase}/portfolio/${this.currentBroker}?currency=${this.currentCurrency}`;
+                }
+
                 const response = await axios.get(url);
 
                 // Always fetch and display EUR to INR exchange rate
@@ -367,6 +599,79 @@
                 }
 
                 return response.data;
+            }
+
+            async fetchFamilyPortfolio() {
+                // Fetch all accounts from all brokers and combine them
+                const allHoldings = [];
+                let totalValue = 0;
+                let totalInvestment = 0;
+                let totalPnl = 0;
+                let totalFreeCash = 0;
+
+                // Fetch Zerodha accounts
+                for (const account of this.accounts.zerodha || []) {
+                    try {
+                        const url = `${this.apiBase}/portfolio/zerodha?currency=${this.currentCurrency}&account=${account}`;
+                        const response = await axios.get(url);
+                        const data = response.data;
+
+                        // Add broker and account info to holdings
+                        data.holdings.forEach(holding => {
+                            allHoldings.push({
+                                ...holding,
+                                broker: 'zerodha',
+                                account: account
+                            });
+                        });
+
+                        totalValue += data.total_value;
+                        totalInvestment += data.total_investment;
+                        totalPnl += data.total_pnl;
+                        totalFreeCash += data.free_cash || 0;
+                    } catch (error) {
+                        console.error(`Failed to fetch Zerodha account ${account}:`, error);
+                    }
+                }
+
+                // Fetch Trading212 accounts
+                for (const account of this.accounts.trading212 || []) {
+                    try {
+                        const url = `${this.apiBase}/portfolio/trading212?currency=${this.currentCurrency}&account=${account}`;
+                        const response = await axios.get(url);
+                        const data = response.data;
+
+                        // Add broker and account info to holdings
+                        data.holdings.forEach(holding => {
+                            allHoldings.push({
+                                ...holding,
+                                broker: 'trading212',
+                                account: account
+                            });
+                        });
+
+                        totalValue += data.total_value;
+                        totalInvestment += data.total_investment;
+                        totalPnl += data.total_pnl;
+                        totalFreeCash += data.free_cash || 0;
+                    } catch (error) {
+                        console.error(`Failed to fetch Trading212 account ${account}:`, error);
+                    }
+                }
+
+                const totalPnlPercentage = totalInvestment > 0 ? (totalPnl / totalInvestment * 100) : 0;
+
+                return {
+                    broker: 'family',
+                    total_value: totalValue,
+                    total_investment: totalInvestment,
+                    total_pnl: totalPnl,
+                    total_pnl_percentage: totalPnlPercentage,
+                    holdings: allHoldings,
+                    last_updated: new Date().toISOString(),
+                    free_cash: totalFreeCash,
+                    is_cached: false
+                };
             }
 
             updateExchangeRateDisplay(rate) {
@@ -426,14 +731,13 @@
                         <div class="metric-label">Return %</div>
                     </div>`;
 
-                // Add free cash card for both brokers
-                if (portfolioData.free_cash !== undefined && portfolioData.free_cash > 0) {
-                    metricsHTML += `
-                    <div class="metric-card">
-                        <div class="metric-value">💵 ${currencySymbol}${portfolioData.free_cash.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
-                        <div class="metric-label">Available Cash</div>
+                // Always show free cash card (prominently like Trading212)
+                const freeCash = portfolioData.free_cash || 0;
+                metricsHTML += `
+                    <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                        <div class="metric-value" style="color: white;">💵 ${currencySymbol}${freeCash.toLocaleString('en-IN', {maximumFractionDigits: 2})}</div>
+                        <div class="metric-label" style="color: rgba(255,255,255,0.9);">Available Cash</div>
                     </div>`;
-                }
 
                 metricsHTML += `
                     <div class="metric-card">

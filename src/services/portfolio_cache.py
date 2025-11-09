@@ -27,16 +27,16 @@ class PortfolioCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_ttl = timedelta(hours=24)  # Cache valid for 24 hours
 
-    def _get_cache_path(self, broker: str, currency: str = "INR") -> Path:
-        """Get cache file path for a specific broker and currency"""
-        filename = f"portfolio_{broker}_{currency.lower()}.json"
+    def _get_cache_path(self, broker: str, currency: str = "INR", account_name: str = "primary") -> Path:
+        """Get cache file path for a specific broker, currency, and account"""
+        filename = f"portfolio_{broker}_{account_name}_{currency.lower()}.json"
         return self.cache_dir / filename
 
     def _get_lock_path(self, cache_path: Path) -> Path:
         """Get lock file path for a cache file"""
         return cache_path.with_suffix('.lock')
 
-    def save(self, broker: str, data: Dict[str, Any], currency: str = "INR") -> bool:
+    def save(self, broker: str, data: Dict[str, Any], currency: str = "INR", account_name: str = "primary") -> bool:
         """
         Save portfolio data to cache
 
@@ -44,18 +44,20 @@ class PortfolioCache:
             broker: Broker name (zerodha, trading212, combined)
             data: Portfolio data dictionary
             currency: Currency code
+            account_name: Account identifier
 
         Returns:
             True if saved successfully, False otherwise
         """
         try:
-            cache_path = self._get_cache_path(broker, currency)
+            cache_path = self._get_cache_path(broker, currency, account_name)
             lock_path = self._get_lock_path(cache_path)
 
             # Add metadata
             cache_data = {
                 'broker': broker,
                 'currency': currency,
+                'account_name': account_name,
                 'cached_at': datetime.now().isoformat(),
                 'data': data
             }
@@ -65,29 +67,30 @@ class PortfolioCache:
                 with open(cache_path, 'w') as f:
                     json.dump(cache_data, f, indent=2, default=str)
 
-            logger.info(f"Cached portfolio data for {broker} ({currency})")
+            logger.info(f"Cached portfolio data for {broker}:{account_name} ({currency})")
             return True
 
         except Exception as e:
-            logger.error(f"Error saving cache for {broker}: {e}")
+            logger.error(f"Error saving cache for {broker}:{account_name}: {e}")
             return False
 
-    def load(self, broker: str, currency: str = "INR") -> Optional[Dict[str, Any]]:
+    def load(self, broker: str, currency: str = "INR", account_name: str = "primary") -> Optional[Dict[str, Any]]:
         """
         Load portfolio data from cache
 
         Args:
             broker: Broker name (zerodha, trading212, combined)
             currency: Currency code
+            account_name: Account identifier
 
         Returns:
             Cached data dictionary or None if not found/expired
         """
         try:
-            cache_path = self._get_cache_path(broker, currency)
+            cache_path = self._get_cache_path(broker, currency, account_name)
 
             if not cache_path.exists():
-                logger.debug(f"No cache file found for {broker} ({currency})")
+                logger.debug(f"No cache file found for {broker}:{account_name} ({currency})")
                 return None
 
             lock_path = self._get_lock_path(cache_path)
@@ -101,12 +104,12 @@ class PortfolioCache:
             cached_at = datetime.fromisoformat(cache_data['cached_at'])
             age = datetime.now() - cached_at
 
-            logger.info(f"Loaded cached data for {broker} ({currency}), age: {age}")
+            logger.info(f"Loaded cached data for {broker}:{account_name} ({currency}), age: {age}")
 
             return cache_data
 
         except Exception as e:
-            logger.error(f"Error loading cache for {broker}: {e}")
+            logger.error(f"Error loading cache for {broker}:{account_name}: {e}")
             return None
 
     def is_valid(self, cache_data: Optional[Dict[str, Any]]) -> bool:
@@ -197,6 +200,7 @@ class PortfolioCache:
                     cached_files.append({
                         'file': cache_file.name,
                         'broker': data.get('broker'),
+                        'account_name': data.get('account_name', 'primary'),
                         'currency': data.get('currency'),
                         'cached_at': data.get('cached_at'),
                         'age': str(self.get_age(data))

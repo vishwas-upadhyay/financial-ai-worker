@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class Trading212Client:
     """Client for interacting with Trading 212 API"""
 
-    def __init__(self, use_demo: bool = False, api_key: Optional[str] = None, api_secret: Optional[str] = None):
+    def __init__(self, use_demo: bool = False, api_key: Optional[str] = None, api_secret: Optional[str] = None, account_name: str = "primary"):
         """
         Initialize Trading212 client
 
@@ -26,25 +26,35 @@ class Trading212Client:
             use_demo: If True, use demo/paper trading environment
             api_key: Optional API key (if not provided, will use from token manager or settings)
             api_secret: Optional API secret
+            account_name: Account identifier (e.g., 'primary', 'spouse', 'child')
         """
+        self.account_name = account_name
+
         # Try to get tokens from token manager first
         if not api_key:
             try:
                 from src.services.token_manager import token_manager
-                tokens = token_manager.get_trading212_token()
+                tokens = token_manager.get_trading212_token(account_name=account_name)
                 if tokens:
                     self.api_key = tokens['api_key']
                     self.api_secret = tokens.get('api_secret')
-                    logger.info("Using Trading212 tokens from token manager")
+                    logger.info(f"Using Trading212 tokens from token manager for account: {account_name}")
                 else:
-                    # Fall back to settings
+                    # Fall back to settings (only for primary account)
+                    if account_name == "primary":
+                        self.api_key = settings.trading212_api_key
+                        self.api_secret = settings.trading212_api_secret
+                        logger.info("Using Trading212 tokens from settings")
+                    else:
+                        raise ValueError(f"No tokens found for Trading212 account: {account_name}")
+            except Exception as e:
+                if account_name == "primary":
+                    logger.warning(f"Could not load from token manager: {e}. Using settings.")
                     self.api_key = settings.trading212_api_key
                     self.api_secret = settings.trading212_api_secret
-                    logger.info("Using Trading212 tokens from settings")
-            except Exception as e:
-                logger.warning(f"Could not load from token manager: {e}. Using settings.")
-                self.api_key = settings.trading212_api_key
-                self.api_secret = settings.trading212_api_secret
+                else:
+                    logger.error(f"Could not load tokens for account {account_name}: {e}")
+                    raise
         else:
             self.api_key = api_key
             self.api_secret = api_secret

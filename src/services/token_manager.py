@@ -87,10 +87,11 @@ class TokenManager:
         api_secret: str,
         access_token: str,
         request_token: Optional[str] = None,
-        expires_at: Optional[datetime] = None
+        expires_at: Optional[datetime] = None,
+        account_name: str = "primary"
     ):
         """
-        Save Zerodha authentication tokens
+        Save Zerodha authentication tokens for a specific account
 
         Args:
             api_key: Zerodha API key
@@ -98,12 +99,22 @@ class TokenManager:
             access_token: Zerodha access token
             request_token: Optional request token
             expires_at: Token expiration time (default: end of day)
+            account_name: Account identifier (e.g., 'primary', 'spouse', 'parent')
         """
         if expires_at is None:
             # Zerodha tokens expire at end of day
             expires_at = datetime.now().replace(hour=23, minute=59, second=59)
 
-        self.tokens['zerodha'] = {
+        # Initialize zerodha dict if it doesn't exist or isn't a dict
+        if 'zerodha' not in self.tokens or not isinstance(self.tokens.get('zerodha'), dict):
+            self.tokens['zerodha'] = {}
+
+        # For backward compatibility, migrate old format
+        if 'api_key' in self.tokens.get('zerodha', {}):
+            old_data = self.tokens['zerodha'].copy()
+            self.tokens['zerodha'] = {'primary': old_data}
+
+        self.tokens['zerodha'][account_name] = {
             'api_key': api_key,
             'api_secret': api_secret,
             'access_token': access_token,
@@ -113,78 +124,147 @@ class TokenManager:
         }
 
         self._save_tokens()
-        logger.info("Saved Zerodha tokens")
+        logger.info(f"Saved Zerodha tokens for account: {account_name}")
 
     def save_trading212_token(
         self,
         api_key: str,
-        api_secret: Optional[str] = None
+        api_secret: Optional[str] = None,
+        account_name: str = "primary"
     ):
         """
-        Save Trading212 API credentials
+        Save Trading212 API credentials for a specific account
 
         Args:
             api_key: Trading212 API key
             api_secret: Trading212 API secret (optional)
+            account_name: Account identifier (e.g., 'primary', 'spouse', 'child')
         """
-        self.tokens['trading212'] = {
+        # Initialize trading212 dict if it doesn't exist or isn't a dict
+        if 'trading212' not in self.tokens or not isinstance(self.tokens.get('trading212'), dict):
+            self.tokens['trading212'] = {}
+
+        # For backward compatibility, migrate old format
+        if 'api_key' in self.tokens.get('trading212', {}):
+            old_data = self.tokens['trading212'].copy()
+            self.tokens['trading212'] = {'primary': old_data}
+
+        self.tokens['trading212'][account_name] = {
             'api_key': api_key,
             'api_secret': api_secret,
             'updated_at': datetime.now().isoformat()
         }
 
         self._save_tokens()
-        logger.info("Saved Trading212 tokens")
+        logger.info(f"Saved Trading212 tokens for account: {account_name}")
 
-    def get_zerodha_token(self) -> Optional[Dict]:
+    def get_zerodha_token(self, account_name: str = "primary") -> Optional[Dict]:
         """
-        Get Zerodha authentication tokens
+        Get Zerodha authentication tokens for a specific account
+
+        Args:
+            account_name: Account identifier (default: 'primary')
 
         Returns:
             Dictionary with tokens or None if not found/expired
         """
-        zerodha_tokens = self.tokens.get('zerodha')
+        zerodha_data = self.tokens.get('zerodha', {})
+
+        # Handle backward compatibility - if old format, migrate and return
+        if 'api_key' in zerodha_data:
+            old_data = zerodha_data.copy()
+            self.tokens['zerodha'] = {'primary': old_data}
+            self._save_tokens()
+            zerodha_data = self.tokens['zerodha']
+
+        zerodha_tokens = zerodha_data.get(account_name)
 
         if not zerodha_tokens:
-            logger.warning("No Zerodha tokens found")
+            logger.warning(f"No Zerodha tokens found for account: {account_name}")
             return None
 
         # Check expiration
         expires_at = datetime.fromisoformat(zerodha_tokens['expires_at'])
         if datetime.now() > expires_at:
-            logger.warning("Zerodha tokens expired")
+            logger.warning(f"Zerodha tokens expired for account: {account_name}")
             return None
 
         return zerodha_tokens
 
-    def get_trading212_token(self) -> Optional[Dict]:
+    def get_trading212_token(self, account_name: str = "primary") -> Optional[Dict]:
         """
-        Get Trading212 API credentials
+        Get Trading212 API credentials for a specific account
+
+        Args:
+            account_name: Account identifier (default: 'primary')
 
         Returns:
             Dictionary with credentials or None if not found
         """
-        trading212_tokens = self.tokens.get('trading212')
+        trading212_data = self.tokens.get('trading212', {})
+
+        # Handle backward compatibility - if old format, migrate and return
+        if 'api_key' in trading212_data:
+            old_data = trading212_data.copy()
+            self.tokens['trading212'] = {'primary': old_data}
+            self._save_tokens()
+            trading212_data = self.tokens['trading212']
+
+        trading212_tokens = trading212_data.get(account_name)
 
         if not trading212_tokens:
-            logger.warning("No Trading212 tokens found")
+            logger.warning(f"No Trading212 tokens found for account: {account_name}")
             return None
 
         return trading212_tokens
 
-    def delete_zerodha_token(self):
-        """Delete Zerodha tokens"""
-        if 'zerodha' in self.tokens:
-            del self.tokens['zerodha']
-            self._save_tokens()
-            logger.info("Deleted Zerodha tokens")
+    def delete_zerodha_token(self, account_name: Optional[str] = None):
+        """
+        Delete Zerodha tokens for a specific account or all accounts
 
-    def delete_trading212_token(self):
-        """Delete Trading212 tokens"""
-        if 'trading212' in self.tokens:
-            del self.tokens['trading212']
+        Args:
+            account_name: Specific account to delete, or None to delete all
+        """
+        if 'zerodha' in self.tokens:
+            if account_name:
+                if account_name in self.tokens['zerodha']:
+                    del self.tokens['zerodha'][account_name]
+                    logger.info(f"Deleted Zerodha tokens for account: {account_name}")
+            else:
+                del self.tokens['zerodha']
+                logger.info("Deleted all Zerodha tokens")
             self._save_tokens()
-            logger.info("Deleted Trading212 tokens")
+
+    def delete_trading212_token(self, account_name: Optional[str] = None):
+        """
+        Delete Trading212 tokens for a specific account or all accounts
+
+        Args:
+            account_name: Specific account to delete, or None to delete all
+        """
+        if 'trading212' in self.tokens:
+            if account_name:
+                if account_name in self.tokens['trading212']:
+                    del self.tokens['trading212'][account_name]
+                    logger.info(f"Deleted Trading212 tokens for account: {account_name}")
+            else:
+                del self.tokens['trading212']
+                logger.info("Deleted all Trading212 tokens")
+            self._save_tokens()
+
+    def list_zerodha_accounts(self) -> list:
+        """List all Zerodha account names"""
+        zerodha_data = self.tokens.get('zerodha', {})
+        if 'api_key' in zerodha_data:  # Old format
+            return ['primary']
+        return list(zerodha_data.keys())
+
+    def list_trading212_accounts(self) -> list:
+        """List all Trading212 account names"""
+        trading212_data = self.tokens.get('trading212', {})
+        if 'api_key' in trading212_data:  # Old format
+            return ['primary']
+        return list(trading212_data.keys())
 
     def get_all_tokens_status(self) -> Dict:
         """

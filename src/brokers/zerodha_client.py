@@ -16,27 +16,42 @@ logger = logging.getLogger(__name__)
 class ZerodhaClient:
     """Client for interacting with Zerodha's Kite API"""
 
-    def __init__(self):
+    def __init__(self, account_name: str = "primary"):
+        """
+        Initialize Zerodha client
+
+        Args:
+            account_name: Account identifier (e.g., 'primary', 'spouse', 'parent')
+        """
+        self.account_name = account_name
+
         # Try to get tokens from token manager first
         try:
             from src.services.token_manager import token_manager
-            tokens = token_manager.get_zerodha_token()
+            tokens = token_manager.get_zerodha_token(account_name=account_name)
             if tokens:
                 self.api_key = tokens['api_key']
                 self.api_secret = tokens['api_secret']
                 self.access_token = tokens['access_token']
-                logger.info("Using Zerodha tokens from token manager")
+                logger.info(f"Using Zerodha tokens from token manager for account: {account_name}")
             else:
-                # Fall back to settings
+                # Fall back to settings (only for primary account)
+                if account_name == "primary":
+                    self.api_key = settings.zerodha_api_key
+                    self.api_secret = settings.zerodha_api_secret
+                    self.access_token = settings.zerodha_access_token
+                    logger.info("Using Zerodha tokens from settings")
+                else:
+                    raise ValueError(f"No tokens found for Zerodha account: {account_name}")
+        except Exception as e:
+            if account_name == "primary":
+                logger.warning(f"Could not load from token manager: {e}. Using settings.")
                 self.api_key = settings.zerodha_api_key
                 self.api_secret = settings.zerodha_api_secret
                 self.access_token = settings.zerodha_access_token
-                logger.info("Using Zerodha tokens from settings")
-        except Exception as e:
-            logger.warning(f"Could not load from token manager: {e}. Using settings.")
-            self.api_key = settings.zerodha_api_key
-            self.api_secret = settings.zerodha_api_secret
-            self.access_token = settings.zerodha_access_token
+            else:
+                logger.error(f"Could not load tokens for account {account_name}: {e}")
+                raise
 
         self.base_url = "https://api.kite.trade"
         self.session = None

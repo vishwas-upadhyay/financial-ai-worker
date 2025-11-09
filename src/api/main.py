@@ -139,11 +139,13 @@ class ZerodhaLoginRequest(BaseModel):
     api_key: str
     api_secret: str
     request_token: str
+    account_name: Optional[str] = "primary"
 
 
 class Trading212LoginRequest(BaseModel):
     api_key: str
     api_secret: Optional[str] = None
+    account_name: Optional[str] = "primary"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -309,18 +311,19 @@ async def zerodha_login(request: ZerodhaLoginRequest):
 
             access_token = data['data']['access_token']
 
-            # Save tokens
+            # Save tokens with account name
             token_manager.save_zerodha_token(
                 api_key=request.api_key,
                 api_secret=request.api_secret,
                 access_token=access_token,
-                request_token=request.request_token
+                request_token=request.request_token,
+                account_name=request.account_name
             )
 
             return {
                 "success": True,
-                "message": "Zerodha authentication successful",
-                "expires_at": token_manager.get_zerodha_token()['expires_at']
+                "message": f"Zerodha authentication successful for account '{request.account_name}'",
+                "expires_at": token_manager.get_zerodha_token(account_name=request.account_name)['expires_at']
             }
 
     except httpx.HTTPStatusError as e:
@@ -335,15 +338,16 @@ async def zerodha_login(request: ZerodhaLoginRequest):
 async def trading212_login(request: Trading212LoginRequest):
     """Save Trading212 API credentials"""
     try:
-        # Save tokens
+        # Save tokens with account name
         token_manager.save_trading212_token(
             api_key=request.api_key,
-            api_secret=request.api_secret
+            api_secret=request.api_secret,
+            account_name=request.account_name
         )
 
         return {
             "success": True,
-            "message": "Trading212 credentials saved successfully"
+            "message": f"Trading212 credentials saved successfully for account '{request.account_name}'"
         }
 
     except Exception as e:
@@ -407,14 +411,16 @@ async def get_exchange_rate(from_currency: str, to_currency: str):
 
 
 @app.get("/portfolio/zerodha", response_model=PortfolioResponse)
-async def get_zerodha_portfolio(currency: Optional[str] = None):
+async def get_zerodha_portfolio(currency: Optional[str] = None, account: Optional[str] = "primary"):
     """
     Get Zerodha portfolio holdings with caching fallback
 
     Query Parameters:
         currency: Target currency for display (INR or EUR). Default: INR (original)
+        account: Account identifier (e.g., 'primary', 'spouse', 'parent'). Default: 'primary'
     """
     display_currency = currency.upper() if currency else "INR"
+    account_name = account or "primary"
 
     try:
         # Validate currency
@@ -423,7 +429,7 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
                 status_code=400,
                 detail="Only INR and EUR currencies are supported"
             )
-        async with ZerodhaClient() as client:
+        async with ZerodhaClient(account_name=account_name) as client:
             # Get portfolio data
             holdings_data = await client.get_portfolio()
             positions_data = await client.get_positions()
@@ -466,18 +472,32 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
             if margins_data:
                 logger.info(f"Zerodha Margins Data Structure: {margins_data}")
 
-                # Zerodha margins structure: equity -> available -> cash
+                # Zerodha margins structure: data -> equity -> live_balance
                 if isinstance(margins_data, dict):
-                    equity_margin = margins_data.get('equity', {})
-                    if isinstance(equity_margin, dict):
-                        available = equity_margin.get('available', {})
-                        if isinstance(available, dict):
-                            free_cash = available.get('cash', 0.0)
+                    # Try to get data wrapper first
+                    data_wrapper = margins_data.get('data', margins_data)
 
-                        # Log the full equity margin structure for debugging
-                        logger.info(f"Equity Margin Structure: {equity_margin}")
+                    if isinstance(data_wrapper, dict):
+                        equity_margin = data_wrapper.get('equity', {})
+                        if isinstance(equity_margin, dict):
+                            # Use live_balance which shows actual available cash
+                            live_balance = equity_margin.get('live_balance', 0.0)
 
-                logger.info(f"Zerodha Available Cash: {free_cash:,.2f} INR")
+                            # Also try available.cash as alternative
+                            available = equity_margin.get('available', {})
+                            available_cash = 0.0
+                            if isinstance(available, dict):
+                                available_cash = available.get('cash', 0.0)
+
+                            # Use whichever is non-zero, prefer live_balance
+                            free_cash = live_balance if live_balance > 0 else available_cash
+
+                            # Log the full equity margin structure for debugging
+                            logger.info(f"Equity Margin Structure: {equity_margin}")
+                            logger.info(f"Live Balance: {live_balance}")
+                            logger.info(f"Available Cash: {available_cash}")
+
+                logger.info(f"Zerodha Available Cash (before conversion): {free_cash:,.2f} INR")
 
             # Convert currency if requested
             source_currency = "INR"  # Zerodha default currency
@@ -513,15 +533,15 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
             )
 
             # Cache the response
-            portfolio_cache.save("zerodha", response.dict(), display_currency)
+            portfolio_cache.save("zerodha", response.dict(), display_currency, account_name)
 
             return response
 
     except Exception as e:
-        logger.error(f"Error fetching Zerodha portfolio: {e}")
+        logger.error(f"Error fetching Zerodha portfolio for account {account_name}: {e}")
 
         # Try to load from cache as fallback
-        cached_data = portfolio_cache.load("zerodha", display_currency)
+        cached_data = portfolio_cache.load("zerodha", display_currency, account_name)
         if cached_data and cached_data.get('data'):
             logger.warning(f"Using cached Zerodha portfolio data (age: {portfolio_cache.get_age(cached_data)})")
             cached_response = cached_data['data']
@@ -533,14 +553,16 @@ async def get_zerodha_portfolio(currency: Optional[str] = None):
 
 
 @app.get("/portfolio/trading212", response_model=PortfolioResponse)
-async def get_trading212_portfolio(currency: Optional[str] = None):
+async def get_trading212_portfolio(currency: Optional[str] = None, account: Optional[str] = "primary"):
     """
     Get Trading 212 portfolio holdings with caching fallback
 
     Query Parameters:
         currency: Target currency for display (INR or EUR). Default: EUR (original)
+        account: Account identifier (e.g., 'primary', 'spouse', 'child'). Default: 'primary'
     """
     display_currency = currency.upper() if currency else "EUR"
+    account_name = account or "primary"
 
     try:
         # Validate currency
@@ -549,7 +571,7 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                 status_code=400,
                 detail="Only INR and EUR currencies are supported"
             )
-        async with Trading212Client() as client:
+        async with Trading212Client(account_name=account_name) as client:
             # Get portfolio data (returns list of positions)
             positions_data = await client.get_portfolio()
 
@@ -631,10 +653,15 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
                     holdings, source_currency, display_currency
                 )
                 total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+
+                # Convert free cash as well
+                free_cash = await currency_converter.convert(free_cash, source_currency, display_currency)
+
                 logger.info(f"Trading212 Portfolio After Conversion to {display_currency}:")
                 logger.info(f"  Total Value: {total_value:,.2f} {display_currency}")
                 logger.info(f"  Total Investment: {total_investment:,.2f} {display_currency}")
                 logger.info(f"  Total P&L: {total_pnl:,.2f} {display_currency}")
+                logger.info(f"  Free Cash: {free_cash:,.2f} {display_currency}")
 
             logger.info(f"Returning Trading212 Portfolio Response:")
             logger.info(f"  Currency: {display_currency}")
@@ -656,15 +683,15 @@ async def get_trading212_portfolio(currency: Optional[str] = None):
             )
 
             # Cache the response
-            portfolio_cache.save("trading212", response.dict(), display_currency)
+            portfolio_cache.save("trading212", response.dict(), display_currency, account_name)
 
             return response
 
     except Exception as e:
-        logger.error(f"Error fetching Trading 212 portfolio: {e}")
+        logger.error(f"Error fetching Trading 212 portfolio for account {account_name}: {e}")
 
         # Try to load from cache as fallback
-        cached_data = portfolio_cache.load("trading212", display_currency)
+        cached_data = portfolio_cache.load("trading212", display_currency, account_name)
         if cached_data and cached_data.get('data'):
             logger.warning(f"Using cached Trading212 portfolio data (age: {portfolio_cache.get_age(cached_data)})")
             cached_response = cached_data['data']
@@ -692,29 +719,52 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
                 status_code=400,
                 detail="Only INR and EUR currencies are supported"
             )
-        # Get portfolios from all brokers
-        zerodha_portfolio = None
-        trading212_portfolio = None
+
+        # Get all accounts for each broker
+        zerodha_accounts = token_manager.list_zerodha_accounts()
+        trading212_accounts = token_manager.list_trading212_accounts()
+
+        # If no accounts are listed, try primary as fallback
+        if not zerodha_accounts:
+            zerodha_accounts = ['primary']
+        if not trading212_accounts:
+            trading212_accounts = ['primary']
+
+        logger.info(f"Fetching combined portfolio: Zerodha accounts: {zerodha_accounts}, Trading212 accounts: {trading212_accounts}")
+
+        # Collect portfolios from all accounts
+        zerodha_portfolios = []
+        trading212_portfolios = []
         free_cash = 0.0
 
-        # Try to get Zerodha portfolio (convert to target currency)
-        try:
-            zerodha_portfolio = await get_zerodha_portfolio(currency=currency)
-            if zerodha_portfolio and zerodha_portfolio.free_cash:
-                free_cash += zerodha_portfolio.free_cash
-        except Exception as e:
-            logger.warning(f"Could not fetch Zerodha portfolio: {e}")
+        # Try to get all Zerodha portfolios (convert to target currency)
+        for account_name in zerodha_accounts:
+            try:
+                portfolio = await get_zerodha_portfolio(currency=currency, account=account_name)
+                if portfolio:
+                    zerodha_portfolios.append(portfolio)
+                    if portfolio.free_cash:
+                        logger.info(f"Adding Zerodha {account_name} free cash: {portfolio.free_cash:,.2f} {display_currency}")
+                        free_cash += portfolio.free_cash
+            except Exception as e:
+                logger.warning(f"Could not fetch Zerodha portfolio for {account_name}: {e}")
 
-        # Try to get Trading 212 portfolio (convert to target currency)
-        try:
-            trading212_portfolio = await get_trading212_portfolio(currency=currency)
-            if trading212_portfolio and trading212_portfolio.free_cash:
-                free_cash += trading212_portfolio.free_cash
-        except Exception as e:
-            logger.warning(f"Could not fetch Trading 212 portfolio: {e}")
+        # Try to get all Trading 212 portfolios (convert to target currency)
+        for account_name in trading212_accounts:
+            try:
+                portfolio = await get_trading212_portfolio(currency=currency, account=account_name)
+                if portfolio:
+                    trading212_portfolios.append(portfolio)
+                    if portfolio.free_cash:
+                        logger.info(f"Adding Trading212 {account_name} free cash: {portfolio.free_cash:,.2f} {display_currency}")
+                        free_cash += portfolio.free_cash
+            except Exception as e:
+                logger.warning(f"Could not fetch Trading 212 portfolio for {account_name}: {e}")
 
-        # If both brokers failed, check if we have any data at all
-        if not zerodha_portfolio and not trading212_portfolio:
+        logger.info(f"Total combined free cash: {free_cash:,.2f} {display_currency}")
+
+        # If all portfolios failed, check if we have any data at all
+        if not zerodha_portfolios and not trading212_portfolios:
             # Try to load from cache as last resort
             cached_data = portfolio_cache.load("combined", display_currency)
             if cached_data and cached_data.get('data'):
@@ -728,25 +778,27 @@ async def get_combined_portfolio(currency: Optional[str] = "INR"):
                 detail="All broker APIs are unavailable and no cache exists"
             )
 
-        # Combine portfolios
+        # Combine portfolios from all accounts
         all_holdings = []
         total_value = 0
         total_investment = 0
         total_pnl = 0
 
-        if zerodha_portfolio:
-            # Zerodha is already converted to target currency
-            all_holdings.extend(zerodha_portfolio.holdings)
-            total_value += zerodha_portfolio.total_value
-            total_investment += zerodha_portfolio.total_investment
-            total_pnl += zerodha_portfolio.total_pnl
+        # Aggregate all Zerodha portfolios
+        for portfolio in zerodha_portfolios:
+            # Each portfolio is already converted to target currency
+            all_holdings.extend(portfolio.holdings)
+            total_value += portfolio.total_value
+            total_investment += portfolio.total_investment
+            total_pnl += portfolio.total_pnl
 
-        if trading212_portfolio:
-            # Trading212 is already converted to target currency
-            all_holdings.extend(trading212_portfolio.holdings)
-            total_value += trading212_portfolio.total_value
-            total_investment += trading212_portfolio.total_investment
-            total_pnl += trading212_portfolio.total_pnl
+        # Aggregate all Trading212 portfolios
+        for portfolio in trading212_portfolios:
+            # Each portfolio is already converted to target currency
+            all_holdings.extend(portfolio.holdings)
+            total_value += portfolio.total_value
+            total_investment += portfolio.total_investment
+            total_pnl += portfolio.total_pnl
 
         total_pnl_percentage = (total_pnl / total_investment * 100) if total_investment > 0 else 0
 
@@ -837,6 +889,110 @@ async def _perform_portfolio_analysis(broker: str) -> AnalysisResponse:
         analysis_date=datetime.now().isoformat()
     )
 
+
+# =============================================================================
+# ACCOUNT MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.get("/accounts/list")
+async def list_accounts():
+    """
+    List all configured accounts for all brokers
+
+    Returns:
+        Dictionary with list of accounts per broker
+    """
+    try:
+        zerodha_accounts = token_manager.list_zerodha_accounts()
+        trading212_accounts = token_manager.list_trading212_accounts()
+
+        return {
+            "zerodha": zerodha_accounts,
+            "trading212": trading212_accounts,
+            "total_accounts": len(zerodha_accounts) + len(trading212_accounts)
+        }
+    except Exception as e:
+        logger.error(f"Error listing accounts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/accounts/status")
+async def get_accounts_status():
+    """
+    Get detailed status of all configured accounts
+
+    Returns:
+        Dictionary with status for each account per broker
+    """
+    try:
+        status = {}
+
+        # Get Zerodha accounts status
+        zerodha_accounts = token_manager.list_zerodha_accounts()
+        status['zerodha'] = {}
+        for account_name in zerodha_accounts:
+            tokens = token_manager.get_zerodha_token(account_name=account_name)
+            if tokens:
+                expires_at = datetime.fromisoformat(tokens['expires_at'])
+                status['zerodha'][account_name] = {
+                    'connected': datetime.now() < expires_at,
+                    'expires_at': tokens['expires_at'],
+                    'expires_in_hours': (expires_at - datetime.now()).total_seconds() / 3600 if datetime.now() < expires_at else 0,
+                    'api_key': tokens['api_key'][:8] + '...'
+                }
+            else:
+                status['zerodha'][account_name] = {
+                    'connected': False
+                }
+
+        # Get Trading212 accounts status
+        trading212_accounts = token_manager.list_trading212_accounts()
+        status['trading212'] = {}
+        for account_name in trading212_accounts:
+            tokens = token_manager.get_trading212_token(account_name=account_name)
+            if tokens:
+                status['trading212'][account_name] = {
+                    'connected': True,
+                    'api_key': tokens['api_key'][:8] + '...',
+                    'updated_at': tokens.get('updated_at')
+                }
+            else:
+                status['trading212'][account_name] = {
+                    'connected': False
+                }
+
+        return status
+    except Exception as e:
+        logger.error(f"Error getting accounts status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/accounts/{broker}/{account_name}")
+async def delete_account(broker: str, account_name: str):
+    """
+    Delete a specific account
+
+    Args:
+        broker: Broker name (zerodha or trading212)
+        account_name: Account identifier to delete
+    """
+    try:
+        if broker.lower() == "zerodha":
+            token_manager.delete_zerodha_token(account_name=account_name)
+            return {"status": "success", "message": f"Deleted Zerodha account: {account_name}"}
+        elif broker.lower() == "trading212":
+            token_manager.delete_trading212_token(account_name=account_name)
+            return {"status": "success", "message": f"Deleted Trading212 account: {account_name}"}
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown broker: {broker}")
+    except Exception as e:
+        logger.error(f"Error deleting account {broker}:{account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# PORTFOLIO ANALYSIS ENDPOINTS
+# =============================================================================
 
 @app.get("/analyze/{broker}", response_model=AnalysisResponse)
 async def analyze_portfolio_get(broker: str):

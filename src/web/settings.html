@@ -260,6 +260,12 @@
                 </div>
 
                 <div class="form-group">
+                    <label>Account Name</label>
+                    <input type="text" id="zerodhaAccountNameInput" placeholder="e.g., primary, spouse, parent" value="primary">
+                    <small>Identifier for this account (lowercase, no spaces)</small>
+                </div>
+
+                <div class="form-group">
                     <label>API Key</label>
                     <input type="text" id="zerodhaApiKeyInput" placeholder="Enter Zerodha API Key">
                 </div>
@@ -311,12 +317,30 @@
                 </div>
 
                 <div class="form-group">
+                    <label>Account Name</label>
+                    <input type="text" id="trading212AccountNameInput" placeholder="e.g., primary, spouse, child" value="primary">
+                    <small>Identifier for this account (lowercase, no spaces)</small>
+                </div>
+
+                <div class="form-group">
                     <label>API Key</label>
                     <input type="text" id="trading212ApiKeyInput" placeholder="Enter Trading212 API Key">
                 </div>
 
                 <div class="actions">
                     <button id="trading212ConnectBtn" class="btn">Connect</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Account Management Section -->
+        <div class="broker-card">
+            <h2>📋 Account Management</h2>
+            <p>Manage all configured accounts across brokers</p>
+
+            <div id="accountsList">
+                <div style="text-align: center; padding: 20px; color: #666;">
+                    Loading accounts...
                 </div>
             </div>
         </div>
@@ -328,6 +352,7 @@
                 this.apiBase = 'http://localhost:8000';
                 this.initializeEventListeners();
                 this.loadStatus();
+                this.loadAccounts();
             }
 
             initializeEventListeners() {
@@ -420,12 +445,19 @@
             }
 
             async connectZerodha() {
+                const accountName = document.getElementById('zerodhaAccountNameInput').value.trim().toLowerCase();
                 const apiKey = document.getElementById('zerodhaApiKeyInput').value;
                 const apiSecret = document.getElementById('zerodhaApiSecretInput').value;
                 const requestToken = document.getElementById('zerodhaRequestTokenInput').value;
 
-                if (!apiKey || !apiSecret || !requestToken) {
+                if (!accountName || !apiKey || !apiSecret || !requestToken) {
                     this.showAlert('error', 'Please fill in all fields');
+                    return;
+                }
+
+                // Validate account name format
+                if (!/^[a-z0-9_]+$/.test(accountName)) {
+                    this.showAlert('error', 'Account name must contain only lowercase letters, numbers, and underscores');
                     return;
                 }
 
@@ -433,18 +465,23 @@
                     const response = await axios.post(`${this.apiBase}/auth/zerodha/login`, {
                         api_key: apiKey,
                         api_secret: apiSecret,
-                        request_token: requestToken
+                        request_token: requestToken,
+                        account_name: accountName
                     });
 
                     this.showAlert('success', response.data.message);
 
                     // Clear inputs
+                    document.getElementById('zerodhaAccountNameInput').value = 'primary';
                     document.getElementById('zerodhaApiKeyInput').value = '';
                     document.getElementById('zerodhaApiSecretInput').value = '';
                     document.getElementById('zerodhaRequestTokenInput').value = '';
 
-                    // Reload status
-                    setTimeout(() => this.loadStatus(), 1000);
+                    // Reload status and accounts list
+                    setTimeout(() => {
+                        this.loadStatus();
+                        this.loadAccounts();
+                    }, 1000);
                 } catch (error) {
                     const message = error.response?.data?.detail || error.message;
                     this.showAlert('error', 'Connection failed: ' + message);
@@ -466,25 +503,37 @@
             }
 
             async connectTrading212() {
+                const accountName = document.getElementById('trading212AccountNameInput').value.trim().toLowerCase();
                 const apiKey = document.getElementById('trading212ApiKeyInput').value;
 
-                if (!apiKey) {
-                    this.showAlert('error', 'Please enter API Key');
+                if (!accountName || !apiKey) {
+                    this.showAlert('error', 'Please fill in all fields');
+                    return;
+                }
+
+                // Validate account name format
+                if (!/^[a-z0-9_]+$/.test(accountName)) {
+                    this.showAlert('error', 'Account name must contain only lowercase letters, numbers, and underscores');
                     return;
                 }
 
                 try {
                     const response = await axios.post(`${this.apiBase}/auth/trading212/login`, {
-                        api_key: apiKey
+                        api_key: apiKey,
+                        account_name: accountName
                     });
 
                     this.showAlert('success', response.data.message);
 
-                    // Clear input
+                    // Clear inputs
+                    document.getElementById('trading212AccountNameInput').value = 'primary';
                     document.getElementById('trading212ApiKeyInput').value = '';
 
-                    // Reload status
-                    setTimeout(() => this.loadStatus(), 1000);
+                    // Reload status and accounts list
+                    setTimeout(() => {
+                        this.loadStatus();
+                        this.loadAccounts();
+                    }, 1000);
                 } catch (error) {
                     const message = error.response?.data?.detail || error.message;
                     this.showAlert('error', 'Connection failed: ' + message);
@@ -502,6 +551,93 @@
                     this.loadStatus();
                 } catch (error) {
                     this.showAlert('error', 'Failed to disconnect: ' + error.message);
+                }
+            }
+
+            async loadAccounts() {
+                try {
+                    const response = await axios.get(`${this.apiBase}/accounts/status`);
+                    const accounts = response.data;
+                    this.displayAccountsList(accounts);
+                } catch (error) {
+                    console.error('Failed to load accounts:', error);
+                    document.getElementById('accountsList').innerHTML =
+                        '<div style="text-align: center; padding: 20px; color: #dc3545;">Failed to load accounts</div>';
+                }
+            }
+
+            displayAccountsList(accounts) {
+                const container = document.getElementById('accountsList');
+
+                if (!accounts || (accounts.zerodha.length === 0 && accounts.trading212.length === 0)) {
+                    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">No accounts configured</div>';
+                    return;
+                }
+
+                let html = '<div style="display: grid; gap: 15px;">';
+
+                // Zerodha accounts
+                if (accounts.zerodha.length > 0) {
+                    html += '<div><h3 style="margin: 0 0 10px 0;">🇮🇳 Zerodha Accounts</h3>';
+                    accounts.zerodha.forEach(account => {
+                        const statusBadge = account.connected
+                            ? '<span class="status connected">Connected</span>'
+                            : '<span class="status disconnected">Disconnected</span>';
+
+                        html += `
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${account.account_name}</strong>
+                                    ${statusBadge}
+                                    ${account.connected ? `<div style="font-size: 12px; color: #666; margin-top: 5px;">API Key: ${account.api_key}</div>` : ''}
+                                    ${account.expires_at ? `<div style="font-size: 12px; color: #666;">Expires: ${new Date(account.expires_at).toLocaleString()}</div>` : ''}
+                                </div>
+                                <button class="btn btn-danger" onclick="settings.deleteAccount('zerodha', '${account.account_name}')">Delete</button>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                }
+
+                // Trading212 accounts
+                if (accounts.trading212.length > 0) {
+                    html += '<div><h3 style="margin: 0 0 10px 0;">🌍 Trading212 Accounts</h3>';
+                    accounts.trading212.forEach(account => {
+                        const statusBadge = account.connected
+                            ? '<span class="status connected">Connected</span>'
+                            : '<span class="status disconnected">Disconnected</span>';
+
+                        html += `
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${account.account_name}</strong>
+                                    ${statusBadge}
+                                    ${account.connected ? `<div style="font-size: 12px; color: #666; margin-top: 5px;">API Key: ${account.api_key}</div>` : ''}
+                                </div>
+                                <button class="btn btn-danger" onclick="settings.deleteAccount('trading212', '${account.account_name}')">Delete</button>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                }
+
+                html += '</div>';
+                container.innerHTML = html;
+            }
+
+            async deleteAccount(broker, accountName) {
+                if (!confirm(`Are you sure you want to delete the ${accountName} account from ${broker}?`)) {
+                    return;
+                }
+
+                try {
+                    await axios.delete(`${this.apiBase}/accounts/${broker}/${accountName}`);
+                    this.showAlert('success', `Deleted ${accountName} account from ${broker}`);
+                    this.loadAccounts();
+                    this.loadStatus();
+                } catch (error) {
+                    const message = error.response?.data?.detail || error.message;
+                    this.showAlert('error', 'Failed to delete account: ' + message);
                 }
             }
 
@@ -523,8 +659,9 @@
         }
 
         // Initialize when page loads
+        let settings;
         document.addEventListener('DOMContentLoaded', () => {
-            new BrokerSettings();
+            settings = new BrokerSettings();
         });
     </script>
 </body>
